@@ -8,6 +8,8 @@ from datetime import datetime
 from zipfile import ZipFile
 from collections import OrderedDict
 
+import boto3
+
 SP_DATE_RE = re.compile(r'\(([0-9]{4})\.([0-9]{2})\.([0-9]{2})\)')
 
 def eprint(*args, **kwargs):
@@ -21,7 +23,7 @@ BAD_KEYS = set([
     'ja/jpsubbers/Japanese-Subtitles/@Reairs/@2010-2012/恋を何年休んでますか.zip/恋を何年休んでますか＃01.srt',
 ])
 
-def process_sub(key, subfn, data, published, verbose):
+def process_sub(key, subfn, data, published, verbose, bucket):
     if verbose:
         print(key)
 
@@ -62,12 +64,20 @@ def process_sub(key, subfn, data, published, verbose):
 
     doc['text'] = doc_text
 
+    doc_json = json.dumps(doc, indent=2, ensure_ascii=False)
     if verbose:
-        print(json.dumps(doc, indent=2, ensure_ascii=False))
+        print(doc_json)
+
+    if bucket:
+        bucket.put_object(
+            Key=key,
+            ContentType='application/json',
+            Body=doc_json.encode('utf-8')
+        )
 
     return 1
 
-def process_zip(fn, rel_fn, published, verbose):
+def process_zip(fn, rel_fn, published, verbose, bucket):
     count = 0
     with ZipFile(fn, 'r') as zipf:
         for subfn in sorted(zipf.namelist()):
@@ -76,19 +86,25 @@ def process_zip(fn, rel_fn, published, verbose):
             with zipf.open(subfn) as subf:
                 data = subf.read()
 
-            count += process_sub(key, subfn, data, published, verbose)
+            count += process_sub(key, subfn, data, published, verbose, bucket)
     return count
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('crawldir')
     parser.add_argument('-v', '--verbose', action='store_true')
+    parser.add_argument('-n', '--dry-run', action='store_true', help="don't upload to S3")
     args = parser.parse_args()
 
     root_dir = args.crawldir
     assert os.path.exists(root_dir), "crawl directory doesn't exist"
 
     assert os.path.exists(os.path.join(root_dir, 'Japanese-Subtitles')), 'wrong directory?'
+
+    docs_bucket = None
+    if not args.dry_run:
+        s3 = boto3.resource('s3')
+        docs_bucket = s3.Bucket('massif-documents')
 
     # Mains
     processed_mains = 0
@@ -102,7 +118,7 @@ if __name__ == '__main__':
 
         rel_fn = os.path.relpath(fn, root_dir)
 
-        processed_mains += process_zip(fn, rel_fn, published=year_str, verbose=args.verbose)
+        processed_mains += process_zip(fn, rel_fn, published=year_str, verbose=args.verbose, bucket=docs_bucket)
 
     # Reairs
     # recursive because there is some non-uniform directory structure
@@ -110,7 +126,7 @@ if __name__ == '__main__':
     for fn in glob.iglob(os.path.join(root_dir, 'Japanese-Subtitles/@Reairs/**/*.zip'), recursive=True):
         rel_fn = os.path.relpath(fn, root_dir)
 
-        processed_reairs += process_zip(fn, rel_fn, published=None, verbose=args.verbose) # can't determine year it originally aired
+        processed_reairs += process_zip(fn, rel_fn, published=None, verbose=args.verbose, bucket=docs_bucket) # can't determine year it originally aired
 
     # Specials
     processed_specials = 0
@@ -126,7 +142,7 @@ if __name__ == '__main__':
         with open(fn, 'rb') as f:
             data = f.read()
 
-        processed_specials += process_sub(key, subfn, data, published, verbose=args.verbose)
+        processed_specials += process_sub(key, subfn, data, published, verbose=args.verbose, bucket=docs_bucket)
 
     eprint(f'{processed_mains} mains')
     eprint(f'{processed_reairs} reairs')
