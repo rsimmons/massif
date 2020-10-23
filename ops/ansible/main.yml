@@ -1,0 +1,99 @@
+---
+- name: configure ubuntu basics
+  hosts: all
+  become: yes
+  tasks:
+  - name: update apt cache
+    apt:
+      update_cache: yes
+      cache_valid_time: 3600 # only run if older than 1 hr
+  - name: set time zone
+    command: timedatectl set-timezone America/Los_Angeles
+  # TODO: verify time is synced via output of timedatectl
+
+- name: configure search servers
+  hosts: search
+  become: yes
+  tasks: 
+  - name: install Elasticsearch
+    apt: 
+      deb: https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.8.1-amd64.deb
+#  - name: make sure directory exists
+#    file:
+#      path: /etc/systemd/system/elasticsearch.service.d
+#      state: directory
+#      mode: '0755'
+#      owner: root
+#      group: root
+#  - name: Copy using inline content
+#    copy:
+#      content: "[Service]\nTimeoutStartSec=180"
+#      dest: /etc/systemd/system/elasticsearch.service.d/startup-timeout.conf
+#      mode: '0644'
+#      owner: root
+#      group: root
+  # TODO: could make these changes via a file in jvm.options.d?
+  - name: adjust Elasticsearch JVM initial memory
+    lineinfile:
+      path: /etc/elasticsearch/jvm.options
+      regexp: '^-Xms'
+      line: '-Xms256m'
+  - name: adjust Elasticsearch JVM maximum memory
+    lineinfile:
+      path: /etc/elasticsearch/jvm.options
+      regexp: '^-Xmx'
+      line: '-Xmx256m'
+  - name: download sudachi plugin
+    get_url:
+      url: https://github.com/WorksApplications/elasticsearch-sudachi/releases/download/v7.8.1-2.0.3/analysis-sudachi-7.8.1-2.0.3.zip
+      dest: /tmp/analysis-sudachi-7.8.1-2.0.3.zip
+      mode: '0644'
+  - name: download sudachi dictionary
+    get_url:
+      url: https://object-storage.tyo2.conoha.io/v1/nc_2520839e1f9641b08211a5c85243124a/sudachi/sudachi-dictionary-20200722-core.zip
+      dest: /tmp/sudachi-dictionary-20200722-core.zip
+      mode: '0644'
+  - name: ensure unzip is installed
+    apt:
+      name: unzip
+      state: present
+  - name: unzip sudachi dictionary
+    unarchive:
+      src: /tmp/sudachi-dictionary-20200722-core.zip
+      dest: /tmp
+      remote_src: yes
+      creates: /tmp/sudachi-dictionary-20200722
+  - name: check if sudachi plugin is installed
+    shell: /usr/share/elasticsearch/bin/elasticsearch-plugin list | grep analysis-sudachi
+    register: sudachi_check
+    ignore_errors: yes # because grep exits with 1 if nothing found
+#  - debug:
+#      var: sudachi_check
+  - name: install sudachi plugin if missing
+    command: /usr/share/elasticsearch/bin/elasticsearch-plugin install file:///tmp/analysis-sudachi-7.8.1-2.0.3.zip
+    when: sudachi_check is failed
+  - name: make sudcahi directory inside config directory
+    file:
+      path: /etc/elasticsearch/sudachi
+      state: directory
+      mode: '0775'
+      owner: root
+      group: elasticsearch
+  - name: copy sudachi dictionary into place
+    copy:
+      src: /tmp/sudachi-dictionary-20200722/system_core.dic
+      remote_src: yes
+      dest: /etc/elasticsearch/sudachi/system_core.dic
+      mode: '0664'
+      owner: root
+      group: elasticsearch
+  - name: make config directory readable (sudachi plugin seems to require this)
+    file:
+      path: /etc/elasticsearch
+      mode: '0775'
+  - name: enable and start Elasticsearch
+    systemd:
+      name: elasticsearch.service
+      daemon_reload: yes
+      enabled: yes
+      state: started
