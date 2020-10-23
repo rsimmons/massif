@@ -104,7 +104,7 @@ if __name__ == '__main__':
     docs_bucket = None
     if not args.dry_run:
         s3 = boto3.resource('s3')
-        docs_bucket = s3.Bucket('massif-documents')
+        docs_bucket = s3.Bucket(os.getenv('MASSIF_DOCS_BUCKET'))
 
     # Mains
     processed_mains = 0
