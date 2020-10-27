@@ -97,3 +97,10 @@
       daemon_reload: yes
       enabled: yes
       state: started
+  - name: make massif directory in /opt
+    file:
+      path: /opt/massif
+      state: directory
+      mode: '0775'
+      owner: ubuntu
+      group: ubuntu
