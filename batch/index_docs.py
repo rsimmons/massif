@@ -38,7 +38,7 @@ def refresh_index(index):
     resp = requests.post(f'http://localhost:9200/{index}/_refresh')
     resp.raise_for_status()
 
-def refresh_indexes(index):
+def refresh_indexes():
     refresh_index('ja_sent_main')
     refresh_index('ja_sent_meta')
 
