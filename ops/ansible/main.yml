@@ -97,6 +97,7 @@
       daemon_reload: yes
       enabled: yes
       state: started
+
   - name: make massif directory in /opt
     file:
       path: /opt/massif
@@ -104,3 +105,7 @@
       mode: '0775'
       owner: ubuntu
       group: ubuntu
+  - name: ensure python3-venv is installed
+    apt:
+      name: python3-venv
+      state: present
