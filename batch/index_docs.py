@@ -45,8 +45,6 @@ def refresh_indexes(index):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('s3prefix')
-    parser.add_argument('indexname')
-    #parser.add_argument('-v', '--verbose', action='store_true')
     args = parser.parse_args()
 
     s3 = boto3.client('s3')
