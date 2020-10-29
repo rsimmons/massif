@@ -34,14 +34,18 @@ ul {
 }
 
 li {
-    border-top: 1px solid #ddd;
-    padding-top: 0.75em;
-    margin-bottom: 0.75em;
+    padding-bottom: 0.75em;
+    margin-top: 0.75em;
+}
+
+li:not(:last-child) {
+    border-bottom: 1px solid #ddd;
 }
 
 .search-positioner {
     position: relative;
     left: -10px;
+    margin-bottom: 1em;
 }
 
 #search-query-input {
@@ -49,12 +53,23 @@ li {
     border: 1px solid rgba(0,0,0,0.25);
     box-shadow: 0 2px 3px rgba(0,0,0,0.06);
     border-radius: 4px;
-    padding: 10px;
+    padding: 6px 10px;
     outline: none;
+}
+
+#results-count {
+    font-size: 14px;
+    color: grey;
 }
 
 #results-list {
     margin-top: 1em;
+}
+
+.result-meta {
+    font-size: 12px;
+    color: grey;
+    margin-top: 0.5em;
 }
 
 .text-japanese {
@@ -69,13 +84,19 @@ li {
     <div class="wrapper">
         <div class="search-positioner">
             <form action="/search" method="get">
-                <input id="search-query-input" type="text" name="q" autofocus autocomplete="off" autocomplete="off" autocorrect="off" tabindex="1" value="{{ query }}" onfocus="this.select()"/>
+                <input id="search-query-input" class="text-japanese" type="text" name="q" autofocus autocomplete="off" autocomplete="off" autocorrect="off" tabindex="1" value="{{ query }}" onfocus="this.select()"/>
                 <button type="submit">Search</button>
             </form>
         </div>
+        <div id="results-count">
+            {{hitcount}} results
+        </div>
         <ul id="results-list">
         {% for hit in hits %}
-            <li class="text-japanese">{{ hit.highlight.text[0].replace('\n', '<br>') | safe }}</li>
+            <li class="text-japanese">
+                <div>{{ hit.markup | safe }}</div>
+                <div class="result-meta">{{ hit.title }}</div>
+            </li>
         {% endfor %}
         </ul>
     </div>
