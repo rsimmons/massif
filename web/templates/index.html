@@ -88,17 +88,19 @@ li:not(:last-child) {
                 <button type="submit">Search</button>
             </form>
         </div>
-        <div id="results-count">
-            {{hitcount}} results
-        </div>
-        <ul id="results-list">
-        {% for hit in hits %}
-            <li class="text-japanese">
-                <div>{{ hit.markup | safe }}</div>
-                <div class="result-meta">{{ hit.title }}</div>
-            </li>
-        {% endfor %}
-        </ul>
+        {% if results %}
+            <div id="results-count">
+                {{results.count_str}} results
+            </div>
+            <ul id="results-list">
+            {% for result in results.list %}
+                <li class="text-japanese">
+                    <div>{{ result.markup | safe }}</div>
+                    <div class="result-meta">{{ result.title }}</div>
+                </li>
+            {% endfor %}
+            </ul>
+        {% endif %}
     </div>
 </body>
 </html>
