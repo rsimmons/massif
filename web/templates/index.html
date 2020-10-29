@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Massif</title>
+    <style type="text/css">
+
+body, html {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-size:18px;
+    font-family: sans-serif;
+}
+
+.wrapper {
+    margin: 0 auto;
+    max-width: 600px;
+    padding: 20px;
+}
+
+em {
+   font-weight: bold;
+   font-style: normal;
+   color: #800;
+}
+
+ul {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+li {
+    border-top: 1px solid #ddd;
+    padding-top: 0.75em;
+    margin-bottom: 0.75em;
+}
+
+.search-positioner {
+    position: relative;
+    left: -10px;
+}
+
+#search-query-input {
+    font-size: 20px;
+    border: 1px solid rgba(0,0,0,0.25);
+    box-shadow: 0 2px 3px rgba(0,0,0,0.06);
+    border-radius: 4px;
+    padding: 10px;
+    outline: none;
+}
+
+#results-list {
+    margin-top: 1em;
+}
+
+.text-japanese {
+    font-family: "ヒラギノ角ゴ Pro W3","Hiragino Kaku Gothic Pro","Yu Gothic",Osaka,メイリオ,Meiryo,"ＭＳ Ｐゴシック","MS PGothic",sans-serif;
+}
+
+    </style>
+    <script>
+    </script>
+</head>
+<body>
+    <div class="wrapper">
+        <div class="search-positioner">
+            <form action="/search" method="get">
+                <input id="search-query-input" type="text" name="q" autofocus autocomplete="off" autocomplete="off" autocorrect="off" tabindex="1" value="{{ query }}" onfocus="this.select()"/>
+                <button type="submit">Search</button>
+            </form>
+        </div>
+        <ul id="results-list">
+        {% for hit in hits %}
+            <li class="text-japanese">{{ hit.highlight.text[0].replace('\n', '<br>') | safe }}</li>
+        {% endfor %}
+        </ul>
+    </div>
+</body>
+</html>
