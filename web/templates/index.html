@@ -42,18 +42,41 @@ li:not(:last-child) {
     border-bottom: 1px solid #ddd;
 }
 
-.search-positioner {
+#search-form {
     position: relative;
     left: -10px;
     margin-bottom: 1em;
 }
 
+#search-form:hover #search-submit-button {
+    background: rgb(255 193 193);
+}
+
 #search-query-input {
+    box-sizing: border-box;
+    width: 100%;
     font-size: 20px;
     border: 1px solid rgba(0,0,0,0.25);
     box-shadow: 0 2px 3px rgba(0,0,0,0.06);
     border-radius: 4px;
     padding: 6px 10px;
+    outline: none;
+}
+
+#search-submit-button {
+    position: absolute;
+    right: -10px;
+    top: 0;
+    bottom: 0;
+    background: white;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    border-radius: 0 4px 4px 0;
+    border: 1px solid rgba(0,0,0,0.25);
+    border-left: 0;
+    padding: 4px 15px 0 15px;
     outline: none;
 }
 
@@ -82,12 +105,12 @@ li:not(:last-child) {
 </head>
 <body>
     <div class="wrapper">
-        <div class="search-positioner">
-            <form action="/search" method="get">
-                <input id="search-query-input" class="text-japanese" type="text" name="q" autofocus autocomplete="off" autocomplete="off" autocorrect="off" tabindex="1" value="{{ query }}" onfocus="this.select()"/>
-                <button type="submit">Search</button>
-            </form>
-        </div>
+        <form id="search-form" action="/search" method="get">
+            <input id="search-query-input" class="text-japanese" type="text" name="q" autofocus autocomplete="off" autocomplete="off" autocorrect="off" tabindex="1" value="{{ query }}" onfocus="this.select()"/>
+            <button id="search-submit-button" type="submit">
+                <svg height="24px" width="24px" fill="#000000" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 15.69 15.48" x="0px" y="0px"><title>Search</title><g data-name="UI Elements"><path d="M15.28,12.71,11.85,9.27a6.21,6.21,0,0,0,.75-3,6.3,6.3,0,1,0-6.3,6.3,6.23,6.23,0,0,0,3.23-.9l3.39,3.39a1.39,1.39,0,0,0,2,0l.4-.4A1.4,1.4,0,0,0,15.28,12.71Zm-9-2.25a4.16,4.16,0,1,1,4.16-4.17A4.16,4.16,0,0,1,6.3,10.46Z"></path></g></svg>
+            </button>
+        </form>
         {% if results %}
             <div id="results-count">
                 {{results.count_str}} results
