@@ -1,7 +1,18 @@
-from flask import Flask, request, render_template
+import os
+
+from flask import Flask, request, render_template, redirect
 import requests
 
 app = Flask(__name__)
+
+ES_HOST = os.getenv('ES_HOST', 'localhost')
+ES_BASE_URL = f'http://{ES_HOST}:9200'
+
+@app.before_request
+def before_request():
+    if not request.is_secure and app.env == 'production':
+        url = request.url.replace('http://', 'https://', 1)
+        return redirect(url, code=301)
 
 @app.route('/')
 def index():
@@ -14,7 +25,7 @@ def search():
 
     results = {}
 
-    main_resp = requests.get(f'http://localhost:9200/ja_sent_main/_search', json={
+    main_resp = requests.get(f'{ES_BASE_URL}/ja_sent_main/_search', json={
         'query': {
             'match_phrase': {
                 'text': query,
@@ -41,7 +52,7 @@ def search():
     meta_ids = [hit['_source']['mid'] for hit in main_resp_body['hits']['hits']]
 
     if meta_ids:
-        meta_resp = requests.get(f'http://localhost:9200/ja_sent_meta/_mget', json={'ids': meta_ids})
+        meta_resp = requests.get(f'{ES_BASE_URL}/ja_sent_meta/_mget', json={'ids': meta_ids})
         meta_resp.raise_for_status()
         meta_resp_body = meta_resp.json()
         meta_map = {doc['_id']: doc['_source'] for doc in meta_resp_body['docs']}
@@ -62,7 +73,3 @@ def search():
     return render_template('index.html', query=query, results=results)
 
 application = app # for EB
-
-if __name__ == "__main__":
-    app.debug = True
-    app.run()

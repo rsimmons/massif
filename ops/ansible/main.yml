@@ -43,6 +43,18 @@
       path: /etc/elasticsearch/jvm.options
       regexp: '^-Xmx'
       line: '-Xmx256m'
+  - name: make Elasticsearch allow connections from other machines
+    lineinfile:
+      path: /etc/elasticsearch/elasticsearch.yml
+      insertafter: '^#network.host:'
+      regexp: '^network.host:'
+      line: 'network.host: 0.0.0.0'
+  - name: tell Elasticsearch run as a single node
+    lineinfile:
+      path: /etc/elasticsearch/elasticsearch.yml
+      insertafter: '^network.host:'
+      regexp: '^discovery.type:'
+      line: 'discovery.type: single-node'
   - name: download sudachi plugin
     get_url:
       url: https://github.com/WorksApplications/elasticsearch-sudachi/releases/download/v7.8.1-2.0.3/analysis-sudachi-7.8.1-2.0.3.zip
