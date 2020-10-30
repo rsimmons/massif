@@ -120,9 +120,7 @@ li:not(:last-child) {
             </button>
         </form>
         {% if results %}
-            <div id="results-count">
-                {{results.count_str}} results
-            </div>
+            <div id="results-count">{{results.count_str}}</div>
             <ul id="results-list">
             {% for result in results.list %}
                 <li class="text-japanese">

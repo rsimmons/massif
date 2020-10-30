@@ -8,6 +8,8 @@ app = Flask(__name__)
 ES_HOST = os.getenv('ES_HOST', 'localhost')
 ES_BASE_URL = f'http://{ES_HOST}:9200'
 
+RESULTS_PER_PAGE = 25
+
 @app.before_request
 def before_request():
     if not request.is_secure and app.env == 'production':
@@ -36,18 +38,24 @@ def search():
                 'text': {},
             },
         },
+        'size': RESULTS_PER_PAGE,
     })
     main_resp.raise_for_status()
 
     main_resp_body = main_resp.json()
 
-    hitcount_value =  main_resp_body['hits']['total']['value']
+    hitcount_value = main_resp_body['hits']['total']['value']
     if main_resp_body['hits']['total']['relation'] == 'eq':
-        results['count_str'] = f'{hitcount_value}'
+        hitcount_qual = ''
     elif main_resp_body['hits']['total']['relation'] == 'gte':
-        results['count_str'] = f'>{hitcount_value}'
+        hitcount_qual = '>'
     else:
         assert False
+    hitcount_str = hitcount_qual + str(hitcount_value)
+    if hitcount_value > RESULTS_PER_PAGE:
+        results['count_str'] = f'showing {RESULTS_PER_PAGE} of {hitcount_str} results'
+    else:
+        results['count_str'] = f'showing {hitcount_str} results'
 
     meta_ids = [hit['_source']['mid'] for hit in main_resp_body['hits']['hits']]
 
