@@ -1,6 +1,6 @@
 import os
 
-from flask import Flask, request, render_template, redirect
+from flask import Flask, request, render_template, redirect, url_for
 import requests
 
 app = Flask(__name__)
@@ -18,10 +18,14 @@ def before_request():
 
 @app.route('/')
 def index():
+    return redirect(url_for('ja'))
+
+@app.route('/ja')
+def ja():
     return render_template('index.html')
 
-@app.route('/search')
-def search():
+@app.route('/ja/search')
+def ja_search():
     query = request.args.get('q', '')
     print('query is', query)
 
