@@ -2,6 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,shrink-to-fit=no"/>
     <title>Massif{% if query %} - {{ query }}{% endif %}</title>
     <style type="text/css">
 
@@ -13,6 +14,13 @@ body, html {
 body {
     font-size:18px;
     font-family: sans-serif;
+}
+
+input[type=text] {
+    /* Remove iOS inner shadow */
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
 }
 
 .wrapper {
@@ -51,6 +59,7 @@ li:not(:last-child) {
 #search-query-input {
     box-sizing: border-box;
     width: 100%;
+    height: 44px;
     font-size: 20px;
     border: 1px solid rgba(0,0,0,0.25);
     box-shadow: 0 2px 3px rgba(0,0,0,0.06);
@@ -61,7 +70,8 @@ li:not(:last-child) {
 
 #search-submit-button {
     position: absolute;
-    right: -10px;
+    height: 44px;
+    right: -20px;
     top: 0;
     bottom: 0;
     background: white;
