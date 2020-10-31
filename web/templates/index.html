@@ -63,7 +63,6 @@ li:not(:last-child) {
     height: 44px;
     font-size: 20px;
     border: 1px solid rgba(0,0,0,0.25);
-    box-shadow: 0 2px 3px rgba(0,0,0,0.15);
     border-radius: 4px;
     padding: 6px 10px;
     outline: none;
@@ -91,12 +90,16 @@ li:not(:last-child) {
     fill: grey;
 }
 
-#search-form:hover #search-submit-button {
+#search-form:hover #search-submit-button, #search-query-input:focus ~ #search-submit-button {
     background: #a00;
 }
 
-#search-form:hover #search-submit-button svg {
+#search-form:hover #search-submit-button svg, #search-query-input:focus ~ #search-submit-button svg {
     fill: white;
+}
+
+#search-form:hover #search-query-input, #search-query-input:focus {
+    box-shadow: 0 2px 3px rgba(0,0,0,0.15);
 }
 
 #results-count {
