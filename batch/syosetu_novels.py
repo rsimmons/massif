@@ -21,7 +21,7 @@ def process_novel(code, bucket):
     novel_url = f'https://ncode.syosetu.com/{code}/'
     novel_resp = requests.get(novel_url, headers=HEADERS)
     novel_resp.raise_for_status()
-    print(novel_url)
+    print(datetime.now(), novel_url)
     time.sleep(WAIT_TIME)
 
     LINK_RE = re.compile(r'^/' + re.escape(code) + r'/[1-9][0-9]*/$')
@@ -64,7 +64,7 @@ def process_novel(code, bucket):
             Body=doc_json.encode('utf-8')
         )
 
-        print(chapter_url, '->', s3key)
+        print(datetime.now(), chapter_url, '->', s3key)
         time.sleep(WAIT_TIME)
 
 if __name__ == "__main__":
