@@ -34,7 +34,6 @@ def process_novel(code, bucket, resume_chapter):
         link_match = LINK_RE.match(chapter_href)
         assert link_match
         chapter_id = link_match.group(1)
-        print(repr(chapter_id))
 
         if resume_chapter:
             if chapter_id == resume_chapter:
