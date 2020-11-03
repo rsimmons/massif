@@ -1,6 +1,7 @@
 import re
 import time
 import json
+import argparse
 import os
 import sys
 from collections import OrderedDict
@@ -11,26 +12,35 @@ from bs4 import BeautifulSoup
 import boto3
 
 PUBLISHED_DATE_RE = re.compile(r'^([0-9]{4})/([0-9]{2})/([0-9]{2})')
-HEADERS = {'User-Agent': 'MassifBot'}
-WAIT_TIME = 5
+HEADERS = {'User-Agent': 'MassifBot/1.0'}
+WAIT_TIME = 3
 
 s3 = boto3.client('s3')
 bucket = os.getenv('MASSIF_DOCS_BUCKET')
 
-def process_novel(code, bucket):
+def process_novel(code, bucket, resume_chapter):
     novel_url = f'https://ncode.syosetu.com/{code}/'
     novel_resp = requests.get(novel_url, headers=HEADERS)
     novel_resp.raise_for_status()
     print(datetime.now(), novel_url)
     time.sleep(WAIT_TIME)
 
-    LINK_RE = re.compile(r'^/' + re.escape(code) + r'/[1-9][0-9]*/$')
+    LINK_RE = re.compile(r'^/' + re.escape(code) + r'/([1-9][0-9]*)/$')
 
     novel_soup = BeautifulSoup(novel_resp.content, 'html.parser')
     index = novel_soup.find(class_='index_box')
     for chapter in index.find_all('dl', class_='novel_sublist2'):
         chapter_href = chapter.find('dd').find('a').get('href')
-        assert LINK_RE.match(chapter_href)
+        link_match = LINK_RE.match(chapter_href)
+        assert link_match
+        chapter_id = link_match.group(1)
+        print(repr(chapter_id))
+
+        if resume_chapter:
+            if chapter_id == resume_chapter:
+                resume_chapter = None
+            else:
+                continue
 
         s3key = 'ja/syosetu' + chapter_href.rstrip('/')
 
@@ -68,11 +78,26 @@ def process_novel(code, bucket):
         time.sleep(WAIT_TIME)
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--resume-code')
+    parser.add_argument('--resume-chapter')
+    args = parser.parse_args()
+
+    # we will clear this after it is reached
+    resume_code = args.resume_code
+    resume_chapter = args.resume_chapter
+
     s3 = boto3.resource('s3')
     docs_bucket = s3.Bucket(os.getenv('MASSIF_DOCS_BUCKET'))
 
     for line in sys.stdin:
-        sline = line.strip()
-        if not sline:
+        code = line.strip()
+        if not code:
             continue
-        process_novel(sline, docs_bucket)
+        if resume_code:
+            if code == resume_code:
+                resume_code = None
+            else:
+                continue
+        process_novel(code, docs_bucket, resume_chapter)
+        resume_chapter = None
