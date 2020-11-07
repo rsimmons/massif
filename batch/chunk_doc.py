@@ -1,11 +1,13 @@
 import os
 import argparse
 import json
+import html
 
 import boto3
 import srt
+import jaconv
 
-from count_chars import count_meaty_chars
+from count_chars import count_meaty_chars, remove_spaces_punctuation
 
 # Subtitles will be chunked at gaps of this time or greater, even if they wouldn't otherwise need to
 # be because the chunks have little enough text.
@@ -13,6 +15,9 @@ SUBTITLE_FORCED_CHUNK_TIME_GAP = 5
 
 SUBTITLE_CONTINUATION_CHARS = '→➡'
 SUBTITLE_MAX_CHUNK_CHARS = 80
+
+def flatten_list_of_lists(l):
+    return [item for sublist in l for item in sublist]
 
 # Takes list of Subtitle, returns list of lists
 # We force a chunk split for any time gap above a certain threshold.
@@ -58,19 +63,47 @@ def group_subs_list(subs):
     subs_before = subs[:split_before_idx]
     subs_after = subs[split_before_idx:]
 
-    return group_subs_list(subs_before) + group_subs_list(subs_after)
+    grouped_subs = group_subs_list(subs_before) + group_subs_list(subs_after)
+
+    # sanity check: flatten groups and make sure it matches original
+    flattened_groups = flatten_list_of_lists(grouped_subs)
+    assert len(flattened_groups) == len(subs)
+    for (i, s) in enumerate(flattened_groups):
+        assert s is subs[i]
+
+    return grouped_subs
 
 def chunk_srt(text):
-    subs = list(srt.parse(text))
+    chunks = []
+
+    subs = list(sub for sub in srt.parse(text) if remove_spaces_punctuation(sub.content)) # filter ones with no useful chars, like '♬～'
+
     grouped_subs = group_subs_list(subs)
+
     for group in grouped_subs:
-        print('BEGIN', len(group), sum(count_meaty_chars(s.content) for s in group))
+        text_pieces = []
+        html_pieces = []
+
         for sub in group:
-            # print(sub.start.total_seconds(), sub.end.total_seconds())
-            print(sub.content.strip())
-        print('END')
-        print()
-    print(len(grouped_subs), 'GROUPS')
+            start_time = sub.start.total_seconds()
+            end_time = sub.end.total_seconds()
+
+            cleaned_content = jaconv.h2z(sub.content).strip() # h2z only affects kana by default, which is what we want
+
+            text_pieces.append(cleaned_content)
+
+            html_pieces.append(
+                f'<p t0="{start_time:.3f}" t1="{end_time:.3f}">' +
+                html.escape(cleaned_content).replace('\n', '<br>') +
+                f'</p>'
+            )
+
+        chunks.append({
+            'text': '\n'.join(text_pieces),
+            'html': '\n'.join(html_pieces),
+        })
+
+    return chunks
 
 def chunk_syosetu(text):
     pass
