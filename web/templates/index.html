@@ -139,7 +139,7 @@ li:not(:last-child) {
             {% for result in results.list %}
                 <li class="text-japanese">
                     <div>{{ result.markup | safe }}</div>
-                    <div class="result-meta">{{ result.title }}</div>
+                    <div class="result-meta">{{ result.title }} ({{result.published}})</div>
                 </li>
             {% endfor %}
             </ul>

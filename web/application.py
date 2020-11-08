@@ -10,6 +10,9 @@ ES_BASE_URL = f'http://{ES_HOST}:9200'
 
 RESULTS_PER_PAGE = 25
 
+CHUNK_INDEX = 'chunk_ja'
+META_INDEX = 'meta_ja'
+
 @app.before_request
 def before_request():
     if not request.is_secure and app.env == 'production':
@@ -31,15 +34,18 @@ def ja_search():
 
     results = {}
 
-    main_resp = requests.get(f'{ES_BASE_URL}/ja_sent_main/_search', json={
+    main_resp = requests.get(f'{ES_BASE_URL}/{CHUNK_INDEX}/_search', json={
         'query': {
             'match_phrase': {
-                'text': query,
+                'html': query,
             },
         },
         'highlight': {
+            'type': 'unified',
             'fields': {
-                'text': {},
+                'html': {
+                    'number_of_fragments': 0, # forces it to return entire field
+                },
             },
         },
         'size': RESULTS_PER_PAGE,
@@ -64,7 +70,7 @@ def ja_search():
     meta_ids = [hit['_source']['mid'] for hit in main_resp_body['hits']['hits']]
 
     if meta_ids:
-        meta_resp = requests.get(f'{ES_BASE_URL}/ja_sent_meta/_mget', json={'ids': meta_ids})
+        meta_resp = requests.get(f'{ES_BASE_URL}/{META_INDEX}/_mget', json={'ids': meta_ids})
         meta_resp.raise_for_status()
         meta_resp_body = meta_resp.json()
         meta_map = {doc['_id']: doc['_source'] for doc in meta_resp_body['docs']}
@@ -74,11 +80,13 @@ def ja_search():
     results_list = []
     for hit in main_resp_body['hits']['hits']:
         xhit = {
-            'markup': hit['highlight']['text'][0].replace('\n', '<br>')
+            'markup': hit['highlight']['html'][0],
         }
         mdata = meta_map.get(hit['_source']['mid'])
         if mdata:
             xhit['title'] = mdata['title']
+            if 'published' in mdata:
+                xhit['published'] = mdata['published']
         results_list.append(xhit)
     results['list'] = results_list
 
