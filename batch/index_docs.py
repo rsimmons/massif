@@ -73,7 +73,7 @@ if __name__ == '__main__':
 
             metadata_id = hashlib.md5(s3key.encode('utf-8')).hexdigest()
 
-            index_metadata(metadata_id, doc['title'], doc['published'], doc.get('url'))
+            index_metadata(metadata_id, doc['title'], doc.get('published'), doc.get('url'))
 
             chunks = chunk_doc(s3key, doc)
 
