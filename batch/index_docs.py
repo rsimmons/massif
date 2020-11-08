@@ -17,11 +17,12 @@ def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 def index_metadata(metadata_id, title, published, url):
-    assert title and published
+    assert title
     obj = {
         'title': title,
-        'published': published,
     }
+    if published:
+        obj['published'] = published
     if url:
         obj['url'] = url
     resp = requests.put(f'http://localhost:9200/{meta_index}/_doc/{metadata_id}', json=obj)
