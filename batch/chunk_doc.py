@@ -37,12 +37,12 @@ def group_subs_list(subs):
     prev_sub = None
     total_chars = 0
     for (idx, sub) in enumerate(subs):
-        total_chars += count_meaty_chars(sub.content)
         if prev_sub:
             prev_sub_stripped = prev_sub.content.strip()
             prev_sub_continuation = prev_sub_stripped and (prev_sub_stripped[-1] in SUBTITLE_CONTINUATION_CHARS)
             time_gap = -1 if prev_sub_continuation else (sub.start - prev_sub.end).total_seconds()
             potential_breaks.append((time_gap, total_chars, idx))
+        total_chars += count_meaty_chars(sub.content)
         prev_sub = sub
 
     potential_breaks.sort(reverse=True)
