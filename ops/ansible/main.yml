@@ -17,7 +17,8 @@
   tasks: 
   - name: install Elasticsearch
     apt: 
-      deb: https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.8.1-amd64.deb
+      deb: https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.8.1-arm64.deb
+      #deb: https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.8.1-amd64.deb
 #  - name: make sure directory exists
 #    file:
 #      path: /etc/systemd/system/elasticsearch.service.d
@@ -37,12 +38,12 @@
     lineinfile:
       path: /etc/elasticsearch/jvm.options
       regexp: '^-Xms'
-      line: '-Xms256m'
+      line: '-Xms4g'
   - name: adjust Elasticsearch JVM maximum memory
     lineinfile:
       path: /etc/elasticsearch/jvm.options
       regexp: '^-Xmx'
-      line: '-Xmx256m'
+      line: '-Xmx4g'
   - name: make Elasticsearch allow connections from other machines
     lineinfile:
       path: /etc/elasticsearch/elasticsearch.yml
