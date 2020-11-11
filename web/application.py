@@ -67,13 +67,17 @@ def ja_search():
     else:
         results['count_str'] = f'showing {hitcount_str} results'
 
-    meta_ids = [hit['_source']['mid'] for hit in main_resp_body['hits']['hits']]
+    meta_idx_ids = []
+    for hit in main_resp_body['hits']['hits']:
+        cidx = hit['_index']
+        assert cidx.startswith('chunk_')
+        midx = 'meta_' + cidx[len('chunk_'):]
+        meta_idx_ids.append((midx, hit['_source']['mid']))
 
-    if meta_ids:
-        meta_resp = requests.get(f'{ES_BASE_URL}/{META_INDEX}/_mget', json={'ids': meta_ids})
+    if meta_idx_ids:
+        meta_resp = requests.get(f'{ES_BASE_URL}/_mget', json={'docs': [{'_index': idx, '_id': did} for (idx, did) in meta_idx_ids]})
         meta_resp.raise_for_status()
         meta_resp_body = meta_resp.json()
-        print('META RESP DOCS', meta_resp_body['docs'])
         meta_map = {doc['_id']: doc['_source'] for doc in meta_resp_body['docs']}
     else:
         meta_map = {}
