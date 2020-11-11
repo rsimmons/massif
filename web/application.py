@@ -94,6 +94,11 @@ def ja_search():
                 xhit['published'] = mdata['published']
             if 'url' in mdata:
                 xhit['url'] = mdata['url']
+            chunk_tags = hit['_source'].get('tags', [])
+            xhit['tags'] = []
+            for t, trans in [('novel', '小説'), ('drama', 'ドラマ')]:
+                if t in chunk_tags:
+                    xhit['tags'].append(trans)
         results_list.append(xhit)
     results['list'] = results_list
 

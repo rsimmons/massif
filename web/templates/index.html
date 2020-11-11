@@ -121,6 +121,14 @@ li:not(:last-child) {
     margin-top: 0.5em;
 }
 
+.result-meta .tag {
+    background: #800;
+    color: white;
+    padding: 0.3em 0.5em;
+    border-radius: 0.2em;
+    margin-right: 0.5em;
+}
+
 .text-japanese {
     font-family: "ヒラギノ角ゴ Pro W3","Hiragino Kaku Gothic Pro","Yu Gothic",Osaka,メイリオ,Meiryo,"ＭＳ Ｐゴシック","MS PGothic",sans-serif;
 }
@@ -143,7 +151,7 @@ li:not(:last-child) {
             {% for result in results.list %}
                 <li class="text-japanese">
                     <div>{{ result.markup | safe }}</div>
-                    <div class="result-meta">{% if result.url %}<a href="{{ result.url }}">{{ result.title }}</a>{% else %}{{ result.title }}{% endif %} ({{result.published}})</div>
+                    <div class="result-meta">{% for tag in result.tags %}<span class="tag">{{ tag }}</span> {% endfor %}{% if result.url %}<a href="{{ result.url }}">{{ result.title }}</a>{% else %}{{ result.title }}{% endif %} ({{result.published}})</div>
                 </li>
             {% endfor %}
             </ul>
