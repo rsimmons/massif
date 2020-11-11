@@ -87,6 +87,8 @@ def ja_search():
             xhit['title'] = mdata['title']
             if 'published' in mdata:
                 xhit['published'] = mdata['published']
+            if 'url' in mdata:
+                xhit['url'] = mdata['url']
         results_list.append(xhit)
     results['list'] = results_list
 
