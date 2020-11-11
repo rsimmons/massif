@@ -73,6 +73,7 @@ def ja_search():
         meta_resp = requests.get(f'{ES_BASE_URL}/{META_INDEX}/_mget', json={'ids': meta_ids})
         meta_resp.raise_for_status()
         meta_resp_body = meta_resp.json()
+        print('META RESP DOCS', meta_resp_body['docs'])
         meta_map = {doc['_id']: doc['_source'] for doc in meta_resp_body['docs']}
     else:
         meta_map = {}
