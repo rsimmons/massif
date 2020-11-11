@@ -71,11 +71,14 @@ if __name__ == '__main__':
 
             doc = json.loads(obj['Body'].read().decode('utf-8'))
 
+            chunks = chunk_doc(s3key, doc)
+            if not chunks:
+                # this does happen sometimes
+                continue
+
             metadata_id = hashlib.md5(s3key.encode('utf-8')).hexdigest()
 
             index_metadata(metadata_id, doc['title'], doc.get('published'), doc.get('url'))
-
-            chunks = chunk_doc(s3key, doc)
 
             tags = doc.get('tags', [])
             if s3key.startswith('ja/jpsubbers/'):
