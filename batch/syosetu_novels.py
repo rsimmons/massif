@@ -15,12 +15,29 @@ PUBLISHED_DATE_RE = re.compile(r'^([0-9]{4})/([0-9]{2})/([0-9]{2})')
 HEADERS = {'User-Agent': 'MassifBot/1.0'}
 WAIT_TIME = 3
 
+RETRY_TIME = 15
+TRY_COUNT = 3
+
 s3 = boto3.client('s3')
 bucket = os.getenv('MASSIF_DOCS_BUCKET')
 
+def requests_get_retry(url, headers):
+    tries = 0
+    while True:
+        try:
+            return requests.get(url, headers=headers)
+        except Exception as exc:
+            print('GET ERROR FOR URL', url)
+            print(exc)
+            tries += 1
+            if tries > TRY_COUNT:
+                raise
+            print('RETRYING')
+            time.sleep(RETRY_TIME)
+
 def process_novel(code, bucket, resume_chapter):
     novel_url = f'https://ncode.syosetu.com/{code}/'
-    novel_resp = requests.get(novel_url, headers=HEADERS)
+    novel_resp = requests_get_retry(novel_url, headers=HEADERS)
     novel_resp.raise_for_status()
     print(datetime.now(), novel_url)
     time.sleep(WAIT_TIME)
@@ -49,7 +66,7 @@ def process_novel(code, bucket, resume_chapter):
         published = '-'.join(published_match.groups())
 
         chapter_url = 'https://ncode.syosetu.com' + chapter_href
-        chapter_resp = requests.get(chapter_url, headers=HEADERS)
+        chapter_resp = requests_get_retry(chapter_url, headers=HEADERS)
         chapter_resp.raise_for_status()
 
         chapter_soup = BeautifulSoup(chapter_resp.content, 'html.parser')
