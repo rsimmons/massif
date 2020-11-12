@@ -2,6 +2,7 @@ import os
 
 from flask import Flask, request, render_template, redirect, url_for
 import requests
+from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
@@ -26,6 +27,21 @@ def index():
 @app.route('/ja')
 def ja():
     return render_template('index.html')
+
+# this is rather complicated, but I didn't immediately see how to get this from libraries
+def format_time(t):
+    result = ''
+    rt = t
+    if rt >= 60*60:
+        result += str(int(rt/(60*60))) + ':'
+        rt = rt % (60*60)
+    if rt >= 60 or result:
+        mins = int(rt/60)
+        result += f'{mins:02d}:' if result else f'{mins:d}:'
+        rt = rt % 60
+    secs = int(rt)
+    result += f'{secs:02d}' if result else str(secs)
+    return result
 
 @app.route('/ja/search')
 def ja_search():
@@ -85,8 +101,20 @@ def ja_search():
 
     results_list = []
     for hit in main_resp_body['hits']['hits']:
+        hit_html = hit['highlight']['html'][0]
+
+        soup = BeautifulSoup(hit_html, 'html.parser')
+        min_time = None
+        max_time = None
+        for p in soup.find_all('p'):
+            for attr in ['t0', 't1']:
+                if p.get(attr):
+                    min_time = min(float(p[attr]), min_time if (min_time is not None) else float('inf'))
+                    max_time = max(float(p[attr]), min_time if (min_time is not None) else 0)
+        print('TIME RANGE', min_time, max_time)
+
         xhit = {
-            'markup': hit['highlight']['html'][0],
+            'markup': hit_html,
         }
         mdata = meta_map.get(hit['_source']['mid'])
         if mdata:
@@ -100,6 +128,9 @@ def ja_search():
             for t, trans in [('novel', '小説'), ('drama', 'ドラマ')]:
                 if t in chunk_tags:
                     xhit['tags'].append(trans)
+            if (min_time is not None) and (max_time is not None):
+                time_range_str = format_time(min_time) + '-' + format_time(max_time)
+                xhit['time_range'] = time_range_str
         results_list.append(xhit)
     results['list'] = results_list
 

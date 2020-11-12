@@ -129,6 +129,10 @@ li:not(:last-child) {
     margin-right: 0.5em;
 }
 
+.result-meta .timerange {
+    font-style: italic;
+}
+
 .text-japanese {
     font-family: "ヒラギノ角ゴ Pro W3","Hiragino Kaku Gothic Pro","Yu Gothic",Osaka,メイリオ,Meiryo,"ＭＳ Ｐゴシック","MS PGothic",sans-serif;
 }
@@ -151,7 +155,7 @@ li:not(:last-child) {
             {% for result in results.list %}
                 <li class="text-japanese">
                     <div>{{ result.markup | safe }}</div>
-                    <div class="result-meta">{% for tag in result.tags %}<span class="tag">{{ tag }}</span> {% endfor %}{% if result.url %}<a href="{{ result.url }}">{{ result.title }}</a>{% else %}{{ result.title }}{% endif %} ({{result.published}})</div>
+                    <div class="result-meta">{% for tag in result.tags %}<span class="tag">{{ tag }}</span> {% endfor %}{% if result.url %}<a href="{{ result.url }}">{{ result.title }}</a>{% else %}{{ result.title }}{% endif %} ({{result.published}}){%if result.time_range %} <span class="timerange">{{ result.time_range }}</span>{% endif %}</div>
                 </li>
             {% endfor %}
             </ul>
