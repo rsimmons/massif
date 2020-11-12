@@ -30,15 +30,16 @@ def ja():
 @app.route('/ja/search')
 def ja_search():
     query = request.args.get('q', '')
-    print('query is', query)
+    phrases = query.split()
+    print('query phrases are', phrases)
 
     results = {}
 
     main_resp = requests.get(f'{ES_BASE_URL}/{CHUNK_INDEX}/_search', json={
         'query': {
-            'match_phrase': {
-                'html': query,
-            },
+            'bool': {
+                'must': [{'match_phrase': {'html': phrase}} for phrase in phrases]
+            }
         },
         'highlight': {
             'type': 'unified',
