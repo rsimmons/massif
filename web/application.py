@@ -101,37 +101,55 @@ def ja_search():
 
     results_list = []
     for hit in main_resp_body['hits']['hits']:
-        hit_html = hit['highlight']['html'][0]
+        xhit = {}
 
+        mdata = meta_map.get(hit['_source']['mid'], {})
+
+        xhit['title'] = mdata['title']
+        if 'published' in mdata:
+            xhit['published'] = mdata['published']
+
+        if 'url' in mdata:
+            xhit['url'] = mdata['url']
+
+        chunk_tags = hit['_source'].get('tags', [])
+        xhit['tags'] = []
+        for t, trans in [('novel', '小説'), ('drama', 'ドラマ')]:
+            if t in chunk_tags:
+                xhit['tags'].append(trans)
+
+        hit_html = hit['highlight']['html'][0]
         soup = BeautifulSoup(hit_html, 'html.parser')
+
         min_time = None
         max_time = None
         for p in soup.find_all('p'):
+            if p.get('a') and mdata.get('url'):
+                p_url = mdata['url'] + '#' + p['a']
+                del p['a']
+
+                link_icon_tag = soup.new_tag('img')
+                link_icon_tag['class'] = 'link-icon'
+                link_icon_tag['src'] = url_for('static', filename='link.svg')
+                p.append(link_icon_tag)
+
+                a_tag = soup.new_tag('a', href=p_url)
+                a_tag['class'] = 'source-anchor-link'
+                p.wrap(a_tag)
+
             for attr in ['t0', 't1']:
                 if p.get(attr):
                     min_time = min(float(p[attr]), min_time if (min_time is not None) else float('inf'))
                     max_time = max(float(p[attr]), min_time if (min_time is not None) else 0)
-        print('TIME RANGE', min_time, max_time)
+                    del p[attr]
+        xhit['markup'] = str(soup)
 
-        xhit = {
-            'markup': hit_html,
-        }
-        mdata = meta_map.get(hit['_source']['mid'])
-        if mdata:
-            xhit['title'] = mdata['title']
-            if 'published' in mdata:
-                xhit['published'] = mdata['published']
-            if 'url' in mdata:
-                xhit['url'] = mdata['url']
-            chunk_tags = hit['_source'].get('tags', [])
-            xhit['tags'] = []
-            for t, trans in [('novel', '小説'), ('drama', 'ドラマ')]:
-                if t in chunk_tags:
-                    xhit['tags'].append(trans)
-            if (min_time is not None) and (max_time is not None):
-                time_range_str = format_time(min_time) + '-' + format_time(max_time)
-                xhit['time_range'] = time_range_str
+        if (min_time is not None) and (max_time is not None):
+            time_range_str = format_time(min_time) + '-' + format_time(max_time)
+            xhit['time_range'] = time_range_str
+
         results_list.append(xhit)
+
     results['list'] = results_list
 
     return render_template('index.html', query=query, results=results)
