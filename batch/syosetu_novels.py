@@ -46,6 +46,11 @@ def process_novel(code, bucket, resume_chapter):
 
     novel_soup = BeautifulSoup(novel_resp.content, 'html.parser')
     index = novel_soup.find(class_='index_box')
+
+    if not index:
+        print('NO INDEX, SKIPPING')
+        return
+
     for chapter in index.find_all('dl', class_='novel_sublist2'):
         chapter_href = chapter.find('dd').find('a').get('href')
         link_match = LINK_RE.match(chapter_href)
