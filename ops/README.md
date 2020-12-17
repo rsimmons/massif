@@ -26,6 +26,17 @@ This is a hacky script to deploy the batch code from local `HEAD`. It also creat
 
 `./deploy-batch.sh <hostname>`
 
+### Manually run batches on server
+
+Example:
+
+```
+$ cd /opt/massif
+$ . batch-env/bin/activate
+(copy-paste AWS secret/config exports from local file)
+$ time python batch/index_docs.py ja
+```
+
 ### Manually restart Elasticsearch
 
 (on the search server)
