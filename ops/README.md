@@ -20,11 +20,11 @@ To avoid hardcoding server IPs in these files, I've added entries to my local `/
 
 `cd ansible && ./configure.sh`
 
-### Deploy batch code
+### Deploy backend/batch code
 
-This is a hacky script to deploy the batch code from local `HEAD`. It also creates/updates the server virtualenv.
+This is a hacky script to deploy the backend code from local `HEAD`. It also creates/updates the server virtualenv.
 
-`./deploy-batch.sh <hostname>`
+`./deploy-backend.sh <hostname>`
 
 ### Manually run batches on server
 
@@ -32,9 +32,9 @@ Example:
 
 ```
 $ cd /opt/massif
-$ . batch-env/bin/activate
+$ . backend-env/bin/activate
 (copy-paste AWS secret/config exports from local file)
-$ time python batch/index_docs.py ja
+$ time python backend/indexing/index_docs.py ja
 ```
 
 ### Manually restart Elasticsearch
