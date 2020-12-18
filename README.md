@@ -2,6 +2,10 @@
 
 Massif is an umbrella project that contains a few different threads of work related to helping people learn foreign languages by **curating and indexing authentic foreign language content**.
 
+https://massif.la/ja is the first available tool: a search engine for Japanese example sentences drawn from novels and dramas.
+
+This repo contains a mix of a) reasonably coherent code to power the above site, and b) random scraps of research code, esp. around sentence scoring. It's probably not of much use to other people at this point, but I've made it public in the spirit of "working with the garage door up".
+
 ## Background
 
 I generally subscribe to the [input hypothesis](https://en.wikipedia.org/wiki/Input_hypothesis) and have personally had success learning Japanese with a study method based on media immersion and sentence mining into [Anki](https://apps.ankiweb.net/) (similar to the [Refold](https://refold.la/) approach). But despite the abundance of tools available, the study process still has some conspicuous pain points, including:
