@@ -135,7 +135,8 @@ def ja_search():
 
                 a_tag = soup.new_tag('a', href=p_url)
                 a_tag['class'] = 'source-anchor-link'
-                p.wrap(a_tag)
+                # p.wrap(a_tag) # this made the entire text linked. keep it in case we change our mind
+                link_icon_tag.wrap(a_tag)
 
             for attr in ['t0', 't1']:
                 if p.get(attr):
