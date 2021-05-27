@@ -133,6 +133,7 @@ def add_meta(s3key, tags, frags):
     for frag in frags:
         frag['src'] = metadata_id = hashlib.md5(s3key.encode('utf-8')).hexdigest()
         frag['tags'] = tags
+    return frags
 
 def fragment_doc(s3key, doc):
     if s3key.startswith('ja/jpsubbers/'):
