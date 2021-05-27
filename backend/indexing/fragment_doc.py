@@ -5,6 +5,8 @@ import html
 import re
 import sys
 import hashlib
+import unicodedata
+import sys
 
 import boto3
 import srt
@@ -15,72 +17,115 @@ from ..util.count_chars import count_meaty_chars, remove_spaces_punctuation
 
 SUBTITLE_CONTINUATION_CHARS = '→➡'
 
-SENT_RE = re.compile(r'[^。！…？]*[。！…？]?')
+SENT_RE = re.compile(r'[^。！？!?]*[。！？!?]?')
 
-# takes a BS element, returns a list of sentence dicts of its "insides".
-# note that we simplify HTML, removing everything except for ruby tags.
-def break_into_sentences(elem):
-    simple_html = simplified_inner_html(elem)
+NAME_TAG = re.compile(r'^(【.{1,6}】)|(（.{1,6}）)|(\(.{1,6}\))|(\[.{1,6}\])')
 
-    split_html = SENT_RE.findall(simple_html)
+QUOTE_CLOSER = {
+    '「': '」',
+    '『': '』',
+    '〝': '〟',
+    '【': '】',
+    '（': '）',
+    '(': ')',
+    '≪': '≫',
+    '<': '>',
+    '《': '》',
+    '｟': '｠',
+    '＜': '＞',
+    '⦅': '⦆',
+    '〈': '〉',
+}
+ALL_QUOTES = ''.join(k+v for (k, v) in QUOTE_CLOSER.items())
 
-    sentences = []
-    for html in split_html:
-        shtml = html.strip()
-        if not shtml:
-            continue
-        text = BeautifulSoup(shtml, 'html.parser').get_text() # hacky but works!
-        sentences.append({
-            'html': shtml,
-            'text': text,
-            'chars': count_meaty_chars(text),
-        })
+EXEMPT_PUNCT = '。！!？?、…―-・～％%℃,＆' + ALL_QUOTES
+WEIRD_PUNCT_TABLE = dict.fromkeys(i for i in range(sys.maxunicode) if (chr(i) in EXEMPT_PUNCT) or not (unicodedata.category(chr(i)).startswith('P') or unicodedata.category(chr(i)).startswith('S')))
+def extract_weird_punct(text):
+    return text.translate(WEIRD_PUNCT_TABLE)
 
-    return sentences
+KANA_KANJI_TABLE = dict.fromkeys(i for i in range(sys.maxunicode) if not any((s in unicodedata.name(chr(i), '') for s in ['KATAKANA', 'HIRAGANA', 'CJK'])))
+def extract_kana_kanji(text):
+    return text.translate(KANA_KANJI_TABLE)
 
-# takes a list of sentences. returns a list of list of sentences
-def group_sents(sents):
-    assert len(sents) > 0
-    if len(sents) == 1:
-        if sents[0]['chars'] > HTML_REJECT_CHUNK_CHARS:
-            # print('SENT REJECT', repr(sents[0]['text']))
-            return []
-        return [sents]
+def has_unbalanced_quotes(text):
+    stack = []
+    for c in text:
+        if c in QUOTE_CLOSER:
+            stack.append(c)
+        elif stack and (c == QUOTE_CLOSER[stack[-1]]):
+            stack.pop()
+        elif c in ALL_QUOTES:
+            return True
 
-    potential_breaks = [] # (cumul_chars, before_idx) tuples
-    prev_sent = None
-    total_chars = 0
-    for (idx, sent) in enumerate(sents):
-        if prev_sent:
-            potential_breaks.append((total_chars, idx))
-        total_chars += sent['chars']
-        prev_sent = sent
+    if stack:
+        return True
 
-    if total_chars <= HTML_MAX_CHUNK_CHARS:
-        return [sents]
+    return False
 
-    center_char_count = 0.5*total_chars
-    potential_breaks.sort(key=lambda b: abs(b[0] - center_char_count))
+def remove_outer_balanced(t):
+    if (len(t) >= 2) and (t[0] in QUOTE_CLOSER) and (QUOTE_CLOSER[t[0]] == t[-1]):
+        t = t[1:-1]
+    return t
 
-    split_before_idx = potential_breaks[0][1]
 
-    sents_before = sents[:split_before_idx]
-    sents_after = sents[split_before_idx:]
-
-    grouped_sents = group_sents(sents_before) + group_sents(sents_after)
-
-    return grouped_sents
-
-def clean_and_divide(text):
+def clean_and_divide(text, log_reject):
     assert '\n' not in text
 
-    clean_text = jaconv.h2z(text.strip()) # h2z only affects kana by default, which is what we want
+    clean_text = text
+    clean_text = jaconv.h2z(clean_text.strip()) # h2z only affects kana by default, which is what we want
+
+    # remove outer matching quotes, brackets, parens
+    clean_text = remove_outer_balanced(clean_text)
 
     sents = [sent.strip() for sent in SENT_RE.findall(clean_text) if sent.strip()]
 
-    return sents
+    cleaned_sents = []
+    for sent in sents:
+        t = sent
 
-def fragment_srt(text):
+        t = NAME_TAG.sub('', t).strip()
+        t = t.lstrip('♬').strip()
+        t = t.replace('☎', '').strip()
+
+        t = remove_outer_balanced(t)
+
+        if not t:
+            if log_reject: log_reject(text, sent, 'empty')
+            continue
+
+        if t.startswith('「') and ('」' not in t):
+            t = t[1:]
+        if t.startswith('『') and ('』' not in t):
+            t = t[1:]
+
+        if t.endswith('」') and ('「' not in t):
+            t = t[:-1]
+        if t.endswith('』') and ('『' not in t):
+            t = t[:-1]
+
+        if t.startswith('」') or t.startswith('』'):
+            if log_reject: log_reject(text, sent, 'initclose')
+            continue # probably not useful
+
+        if has_unbalanced_quotes(t):
+            if log_reject: log_reject(text, sent, 'unbalanced')
+            continue
+
+        t = t.lstrip('…―')
+
+        remaining_weird_punct = extract_weird_punct(t)
+        if remaining_weird_punct:
+            if log_reject: log_reject(text, sent, f'weirdpunct {repr(remaining_weird_punct)}')
+            continue
+
+        if not extract_kana_kanji(t):
+            continue
+
+        cleaned_sents.append(t)
+
+    return cleaned_sents
+
+def fragment_srt(text, log_reject):
     chunks = []
 
     subs = list(sub for sub in srt.parse(text) if remove_spaces_punctuation(sub.content)) # filter ones with no useful chars, like '♬～'
@@ -96,7 +141,7 @@ def fragment_srt(text):
             start_time = accum[0].start.total_seconds()
             end_time = accum[-1].end.total_seconds()
 
-            frag_texts = clean_and_divide(single_line_content)
+            frag_texts = clean_and_divide(single_line_content, log_reject)
 
             for frag_text in frag_texts:
                 frags.append({
@@ -108,7 +153,7 @@ def fragment_srt(text):
 
     return frags
 
-def fragment_syosetu(text):
+def fragment_syosetu(text, log_reject):
     soup = BeautifulSoup(text.strip(), 'html.parser')
     frags = []
     for child in soup.contents[0].children:
@@ -118,7 +163,7 @@ def fragment_syosetu(text):
             para_text = child.get_text()
             meaty_count = count_meaty_chars(para_text)
             if meaty_count > 0: # skip useless paras
-                frag_texts = clean_and_divide(para_text)
+                frag_texts = clean_and_divide(para_text, log_reject)
 
                 for frag_text in frag_texts:
                     frag = {'text': frag_text}
@@ -128,35 +173,3 @@ def fragment_syosetu(text):
                     frags.append(frag)
 
     return frags
-
-def add_meta(s3key, tags, frags):
-    for frag in frags:
-        frag['src'] = metadata_id = hashlib.md5(s3key.encode('utf-8')).hexdigest()
-        frag['tags'] = tags
-    return frags
-
-def fragment_doc(s3key, doc):
-    if s3key.startswith('ja/jpsubbers/'):
-        assert doc['type'] == 'application/x-subrip'
-        return add_meta(s3key, 'drama,subs', fragment_srt(doc['text']))
-    elif s3key.startswith('ja/syosetu/'):
-        assert doc['type'] == 'text/html'
-        return add_meta(s3key, 'novel', fragment_syosetu(doc['text']))
-    else:
-        assert False
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('s3key')
-    args = parser.parse_args()
-
-    s3 = boto3.client('s3')
-    bucket = os.getenv('MASSIF_DOCS_BUCKET')
-
-    obj = s3.get_object(Bucket=bucket, Key=args.s3key)
-    doc = json.loads(obj['Body'].read().decode('utf-8'))
-    print('DOC------------------------------------')
-    print(doc)
-    print('FRAGS----------------------------------')
-    for frag in fragment_doc(args.s3key, doc):
-        print(repr(frag))
