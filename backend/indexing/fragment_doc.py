@@ -4,6 +4,7 @@ import json
 import html
 import re
 import sys
+import hashlib
 
 import boto3
 import srt
