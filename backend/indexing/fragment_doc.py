@@ -129,7 +129,7 @@ def fragment_syosetu(text):
 
     return frags
 
-def add_meta(tags, frags):
+def add_meta(s3key, tags, frags):
     frag['src'] = metadata_id = hashlib.md5(s3key.encode('utf-8')).hexdigest()
     for frag in frags:
         frag['tags'] = tags
@@ -137,10 +137,10 @@ def add_meta(tags, frags):
 def fragment_doc(s3key, doc):
     if s3key.startswith('ja/jpsubbers/'):
         assert doc['type'] == 'application/x-subrip'
-        return add_meta('drama,subs', fragment_srt(doc['text']))
+        return add_meta(s3key, 'drama,subs', fragment_srt(doc['text']))
     elif s3key.startswith('ja/syosetu/'):
         assert doc['type'] == 'text/html'
-        return add_meta('novel', fragment_syosetu(doc['text']))
+        return add_meta(s3key, 'novel', fragment_syosetu(doc['text']))
     else:
         assert False
 
