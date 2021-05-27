@@ -130,8 +130,8 @@ def fragment_syosetu(text):
     return frags
 
 def add_meta(s3key, tags, frags):
-    frag['src'] = metadata_id = hashlib.md5(s3key.encode('utf-8')).hexdigest()
     for frag in frags:
+        frag['src'] = metadata_id = hashlib.md5(s3key.encode('utf-8')).hexdigest()
         frag['tags'] = tags
 
 def fragment_doc(s3key, doc):
