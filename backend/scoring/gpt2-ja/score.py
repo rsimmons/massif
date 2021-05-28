@@ -102,6 +102,8 @@ if int(args.gpu) >= 0:
     config.gpu_options.allow_growth = True
     config.gpu_options.visible_device_list = args.gpu
 
+ADD_END_TOKEN = True
+
 with tf.Session(config=config, graph=tf.Graph()) as sess:
     tokens_tensor = tf.placeholder(tf.int32, [None])
 
@@ -114,21 +116,20 @@ with tf.Session(config=config, graph=tf.Graph()) as sess:
     end_token = enc.encode('<|endoftext|>')[0]
     start_token = end_token # it does double duty
 
-    print(f'text\t{args.model}.chars\t{args.model}.toks\t{args.model}.logprob\t{args.model}.logprob_per_char\t{args.model}.logprob_per_tok')
     for text in texts:
         # prepend the start token so that we get a probability for the first "real" token
         tokens = enc.encode(text)
-        # tokens += [end_token]
-        tokens_with_start = [start_token] + tokens
+        expanded_tokens = [start_token] + tokens
+        if ADD_END_TOKEN:
+            expanded_tokens += [end_token]
 
         logprobs = sess.run(output, feed_dict={
-            tokens_tensor: tokens_with_start,
+            tokens_tensor: expanded_tokens,
         })
 
         logprobs_list = logprobs.tolist()
-        assert len(logprobs_list) == len(tokens) # sanity check
+        assert len(logprobs_list) == len(expanded_tokens) - 1 # sanity check
 
-        cnum = len(text)
-        tnum = len(tokens)
         sumlogprob = sum(logprobs_list)
-        print('%s\t%d\t%d\t%.5g\t%.5g\t%.5g' % (text, cnum, tnum, sumlogprob, sumlogprob/cnum, sumlogprob/tnum))
+
+        print('%s\t%.5g' % (text, sumlogprob), flush=True)
