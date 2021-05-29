@@ -121,6 +121,8 @@ def clean_and_divide(text, log_reject):
         if not extract_kana_kanji(t):
             continue
 
+        t = t.strip() # important final strip
+
         cleaned_sents.append(t)
 
     return cleaned_sents
