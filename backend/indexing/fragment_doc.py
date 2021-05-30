@@ -83,6 +83,8 @@ def clean_and_divide(text, log_reject):
     for sent in sents:
         t = sent
 
+        t = t.replace('\t', ' ')
+
         t = NAME_TAG.sub('', t).strip()
         t = t.lstrip('♬').strip()
         t = t.replace('☎', '').strip()
