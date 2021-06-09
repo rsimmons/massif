@@ -5,96 +5,97 @@ from collections import Counter
 
 from sudachi import analyze_single
 
-TOP_WORDS_COUNT = 1500
+TOP_WORDS_COUNT = 2000
 KNOWN_AHEAD_COUNT = 100
 MAX_GOOD_SENTENCES = 20
 MAX_NEED_SENTENCES = 20
-MAX_LINES_TO_CHECK = 1_000_000
+MAX_LINES_TO_CHECK = 3_000_000
 
-FILTER_NORMAL_AND_FIRST_FIELD_SET = set([
-    ('は', '助詞'),
-    ('の', '助詞'),
-    ('て', '助詞'),
-    ('に', '助詞'),
-    ('を', '助詞'),
-    ('が', '助詞'),
-    ('た', '助動詞'),
-    ('だ', '助動詞'),
-    ('と', '助詞'),
-    ('も', '助詞'),
-    ('で', '助詞'),
-    ('か', '助詞'),
-    ('です', '助動詞'),
-    ('な', '助詞'),
-    ('よ', '助詞'),
-    ('ない', '助動詞'),
-    ('ね', '助詞'),
-    ('から', '助詞'),
-    ('れる', '助動詞'),
-    ('ば', '助詞'),
-    ('って', '助詞'),
-    ('ます', '助動詞'),
-    ('けれど', '助詞'),
-    ('まで', '助詞'),
-    ('ず', '助動詞'),
-    ('わ', '助詞'),
-    ('へ', '助詞'),
-    ('し', '助詞'),
-    ('ぞ', '助詞'),
-    ('てる', '助動詞'),
-    ('られる', '助動詞'),
-    ('とく', '助動詞'),
-    ('け', '助詞'),
-    ('ふっ', '副詞'),
-    ('ユー', '名詞'),
-    ('はあはあ', '副詞'),
-    ('させる', '助動詞'),
-    ('〞', '名詞'),
-    ('ンンッ', '名詞'),
-    ('わっ', '副詞'),
+FILTER_NORMALS = '''
+は
+の
+て
+に
+を
+が
+た
+だ
+と
+も
+で
+か
+です
+な
+よ
+ない
+ね
+から
+れる
+ば
+って
+ます
+けれど
+まで
+ず
+わ
+へ
+し
+ぞ
+てる
+られる
+とく
+け
+ふっ
+ユー
+はあはあ
+させる
+〞
+ンンッ
+わっ
+あっ
+ああ
+えっ
+んっ
+はあ
+うう
+あー
+おお
+おっ
+なあ
+うわ
+えー
+あれ
+はっ
+うー
+えーと
+へえ
+ふふ
+くっ
+ねえ
+わあ
+あはは
+あの
+む
+ふん
+いや
+いー
+ふう
+ふふふ
+きゃあ
+おー
+うお
+ははは
+ぎゃあ
+やあ
+うふふ
+んー
+ほう
+おっと
+えい
+えへ
+'''
 
-    # 感動詞
-    ('あっ', '感動詞'),
-    ('ああ', '感動詞'),
-    ('えっ', '感動詞'),
-    ('んっ', '感動詞'),
-    ('はあ', '感動詞'),
-    ('うう', '感動詞'),
-    ('あー', '感動詞'),
-    ('おお', '感動詞'),
-    ('おっ', '感動詞'),
-    ('なあ', '感動詞'),
-    ('うわ', '感動詞'),
-    ('えー', '感動詞'),
-    ('あれ', '感動詞'),
-    ('はっ', '感動詞'),
-    ('うー', '感動詞'),
-    ('えーと', '感動詞'),
-    ('へえ', '感動詞'),
-    ('ふふ', '感動詞'),
-    ('くっ', '感動詞'),
-    ('ねえ', '感動詞'),
-    ('わあ', '感動詞'),
-    ('あはは', '感動詞'),
-    ('あの', '感動詞'),
-    ('む', '感動詞'),
-    ('ふん', '感動詞'),
-    ('いや', '感動詞'),
-    ('いー', '感動詞'),
-    ('ふう', '感動詞'),
-    ('ふふふ', '感動詞'),
-    ('きゃあ', '感動詞'),
-    ('おー', '感動詞'),
-    ('うお', '感動詞'),
-    ('ははは', '感動詞'),
-    ('ぎゃあ', '感動詞'),
-    ('やあ', '感動詞'),
-    ('うふふ', '感動詞'),
-    ('んー', '感動詞'),
-    ('ほう', '感動詞'),
-    ('おっと', '感動詞'),
-    ('えい', '感動詞'),
-])
+FILTER_NORMALS_SET = set([s.strip() for s in FILTER_NORMALS.split('\n') if s.strip()])
 
 KANA_KANJI_TABLE = dict.fromkeys(i for i in range(sys.maxunicode) if not any((s in unicodedata.name(chr(i), '') for s in ['KATAKANA', 'HIRAGANA', 'CJK'])))
 def extract_kana_kanji(text):
@@ -109,8 +110,7 @@ def include_for_refold(analysis):
     if fields_str.startswith('名詞,固有名詞,'):
         return False # name
 
-    fields = fields_str.split(',')
-    if (normal, fields[0]) in FILTER_NORMAL_AND_FIRST_FIELD_SET:
+    if normal in FILTER_NORMALS_SET:
         return False
 
     return True
@@ -152,21 +152,42 @@ def find_sentences(target_normal, sorted_toks_fn, known_normals_set):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('text')
     parser.add_argument('sortedtoks', help='tsv of (text, toks) sorted by descending goodness')
+    parser.add_argument('freqtext', nargs='+', help='may have an integer specified like FN:WEIGHT')
     args = parser.parse_args()
 
-    analyses = [a for a in analyze_single(open(args.text).read()) if include_for_refold(a)]
+    combined_normal_count = Counter()
+    combined_normal_breakdown = {}
 
-    normal_count = Counter(normal for (orig, analysis, normal) in analyses)
+    sum_weights = 0
+    for freqtext in args.freqtext:
+        if ':' in freqtext:
+            freqtext_fn, weight_str = freqtext.split(':')
+            weight = int(weight_str)
+        else:
+            weight = 1
+            freqtext_fn = freqtext
+        sum_weights += weight
 
-    normal_breakdown = {}
-    for (orig, analysis, normal) in analyses:
-        normal_breakdown.setdefault(normal, Counter())
-        normal_breakdown[normal][(orig, analysis)] += 1
+        analyses = [a for a in analyze_single(open(freqtext_fn).read()) if include_for_refold(a)]
 
-    known_set = set()
-    for (normal, _) in normal_count.most_common(KNOWN_AHEAD_COUNT):
+        normal_count = Counter(normal for (orig, analysis, normal) in analyses)
+        total_count = sum(normal_count.values())
+        for (normal, count) in normal_count.items():
+            combined_normal_count[normal] += weight*(count/total_count)
+
+        normal_breakdown = {}
+        for (orig, analysis, normal) in analyses:
+            normal_breakdown.setdefault(normal, Counter())
+            normal_breakdown[normal][(orig, analysis)] += 1
+        for (normal, orig_analysis_counter) in normal_breakdown.items():
+            total_count = sum(orig_analysis_counter.values())
+            combined_normal_breakdown.setdefault(normal, Counter())
+            for (orig_analysis, count) in orig_analysis_counter.items():
+                combined_normal_breakdown[normal][orig_analysis] += weight*(count/total_count)
+
+    known_set = FILTER_NORMALS_SET.copy()
+    for (normal, _) in combined_normal_count.most_common(KNOWN_AHEAD_COUNT):
         known_set.add(normal)
 
     print('REPORT OF TOP %d WORDS' % TOP_WORDS_COUNT)
@@ -174,15 +195,15 @@ if __name__ == '__main__':
     print()
 
     word_num = 0
-    for (normal, count) in normal_count.most_common(TOP_WORDS_COUNT):
+    for (normal, count) in combined_normal_count.most_common(TOP_WORDS_COUNT):
         word_num += 1
         print(78*'-')
-        print('\t'.join([normal, '#%d, occurs %d times' % (word_num, count)]))
+        print('\t'.join([normal, '#%d, %.6f%% of words' % (word_num, 100*count/sum_weights)]))
         print()
 
         print('occurs as:')
-        for ((orig, fields_str), count) in normal_breakdown[normal].most_common():
-            print('  ' + '\t'.join([orig, fields_str, '%d times' % count]))
+        for ((orig, fields_str), count) in combined_normal_breakdown[normal].most_common():
+            print('  ' + '\t'.join([orig, fields_str, '%.2f%%' % (100*count/sum_weights)]))
         print()
 
         (good_sents, need_sents) = find_sentences(normal, args.sortedtoks, known_set)

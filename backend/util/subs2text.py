@@ -1,3 +1,5 @@
+import os
+
 import argparse
 import pysubs2
 
@@ -26,15 +28,18 @@ def remove_parenthesized(text):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('subfile', nargs='+')
+    parser.add_argument('subdir')
     args = parser.parse_args()
 
-    for subfn in args.subfile:
-        subs = pysubs2.load(subfn, encoding='utf-8')
-        subs.remove_miscellaneous_events()
-        for line in subs:
-            t = line.plaintext
-            t = remove_parenthesized(t)
-            t = t.strip().strip('　')
-            if t:
-                print(t)
+    for subdir, dirs, files in os.walk(args.subdir):
+        for fn in files:
+            subfn = subdir + os.sep + fn
+
+            subs = pysubs2.load(subfn, encoding='utf-8')
+            subs.remove_miscellaneous_events()
+            for line in subs:
+                t = line.plaintext
+                t = remove_parenthesized(t)
+                t = t.strip().strip('　')
+                if t:
+                    print(t)
