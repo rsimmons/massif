@@ -10,9 +10,11 @@ ES_HOST = os.getenv('ES_HOST', 'localhost')
 ES_BASE_URL = f'http://{ES_HOST}:9200'
 
 RESULTS_PER_PAGE = 25
+FRAGMENT_RESULTS_PER_PAGE = 100
 
 CHUNK_INDEX = 'chunk_ja'
 META_INDEX = 'meta_ja'
+FRAGMENT_INDEX = 'fragment_ja'
 
 @app.before_request
 def before_request():
@@ -154,5 +156,58 @@ def ja_search():
     results['list'] = results_list
 
     return render_template('index.html', query=query, results=results)
+
+@app.route('/ja/fsearch')
+def ja_fsearch():
+    query = request.args.get('q', '')
+    if not query:
+        return render_template('findex.html')
+
+    phrases = query.split()
+    print('query phrases are', phrases)
+
+    results = {}
+
+    main_resp = requests.get(f'{ES_BASE_URL}/{FRAGMENT_INDEX}/_search', json={
+        'query': {
+            'bool': {
+                'must': [{'match_phrase': {'text': phrase}} for phrase in phrases]
+            }
+        },
+        'sort': [
+            {'mscore': 'desc'},
+        ],
+        'track_total_hits': False, # required for early termination
+        'highlight': {
+            'type': 'unified',
+            'fields': {
+                'text': {
+                    'number_of_fragments': 0, # forces it to return entire field
+                },
+            },
+        },
+        'size': FRAGMENT_RESULTS_PER_PAGE,
+    })
+    main_resp.raise_for_status()
+
+    main_resp_body = main_resp.json()
+
+    hit_count = len(main_resp_body['hits']['hits'])
+    qual = 'first ' if (hit_count >= FRAGMENT_RESULTS_PER_PAGE) else ''
+    results['count_str'] = f'showing {qual}{hit_count} results'
+
+    results_list = []
+    for hit in main_resp_body['hits']['hits']:
+        xhit = {}
+
+        hit_html = hit['highlight']['text'][0]
+
+        xhit['markup'] = str(hit_html)
+
+        results_list.append(xhit)
+
+    results['list'] = results_list
+
+    return render_template('findex.html', query=query, results=results)
 
 application = app # for EB
