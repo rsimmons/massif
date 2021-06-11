@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,shrink-to-fit=no"/>
+    <title>Massif{% if query %} - {{ query }}{% endif %}</title>
+    <style type="text/css">
+
+body, html {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-size:18px;
+    font-family: sans-serif;
+}
+
+input[type=text] {
+    /* Remove iOS inner shadow */
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+}
+
+.wrapper {
+    margin: 0 auto;
+    max-width: 600px;
+    padding: 20px 10px;
+}
+
+em {
+   font-weight: bold;
+   font-style: normal;
+   color: #800;
+}
+
+ul {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+li {
+    padding: 15px 10px;
+    margin-top: 8px;
+    /* border: 1px solid #ccc; */
+    border-radius: 5px;
+    box-shadow: 0 0 2px rgba(0,0,0,0.35);
+}
+
+li p:first-child {
+    margin-top: 0;
+}
+
+#search-form {
+    position: relative;
+    margin-bottom: 1em;
+}
+
+#search-query-input {
+    box-sizing: border-box;
+    width: 100%;
+    height: 44px;
+    font-size: 20px;
+    border: 1px solid rgba(0,0,0,0.25);
+    border-radius: 4px;
+    padding: 6px 10px;
+    outline: none;
+}
+
+#search-submit-button {
+    position: absolute;
+    height: 44px;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    background: white;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    border-radius: 0 4px 4px 0;
+    border: 1px solid rgba(0,0,0,0.25);
+    border-left: 0;
+    padding: 4px 15px 0 15px;
+    outline: none;
+}
+
+#search-submit-button svg {
+    fill: grey;
+}
+
+#search-form:hover #search-submit-button, #search-query-input:focus ~ #search-submit-button {
+    background: #a00;
+}
+
+#search-form:hover #search-submit-button svg, #search-query-input:focus ~ #search-submit-button svg {
+    fill: white;
+}
+
+#search-form:hover #search-query-input, #search-query-input:focus {
+    box-shadow: 0 2px 3px rgba(0,0,0,0.15);
+}
+
+#results-count {
+    font-size: 14px;
+    color: grey;
+    padding: 0 10px;
+}
+
+#results-list {
+    margin-top: 1em;
+}
+
+#results-list a {
+    color: inherit;
+}
+
+.source-anchor-link {
+    text-decoration: none;
+}
+.source-anchor-link:hover {
+    text-decoration: underline;
+}
+
+.link-icon {
+    width: 12px;
+    height: 12px;
+    margin-left: 0.25em;
+}
+
+.result-meta {
+    font-size: 12px;
+    color: grey;
+    margin-top: 0.5em;
+}
+
+.result-meta .tag {
+    background: #800;
+    color: white;
+    padding: 0.3em 0.5em;
+    border-radius: 0.2em;
+    margin-right: 0.5em;
+}
+
+.result-meta .timerange {
+    font-style: italic;
+}
+
+.text-japanese {
+    font-family: "ヒラギノ角ゴ Pro W3","Hiragino Kaku Gothic Pro","Yu Gothic",Osaka,メイリオ,Meiryo,"ＭＳ Ｐゴシック","MS PGothic",sans-serif;
+}
+
+    </style>
+    <script>
+    </script>
+</head>
+<body>
+    <div class="wrapper">
+        <form id="search-form" action="/ja/fsearch" method="get">
+            <input id="search-query-input" class="text-japanese" type="text" name="q" autofocus autocomplete="off" autocomplete="off" autocorrect="off" tabindex="1" value="{{ query }}" onfocus="this.select()"/>
+            <button id="search-submit-button" type="submit">
+                <svg height="24px" width="24px" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 15.69 15.48" x="0px" y="0px"><path d="M15.28,12.71,11.85,9.27a6.21,6.21,0,0,0,.75-3,6.3,6.3,0,1,0-6.3,6.3,6.23,6.23,0,0,0,3.23-.9l3.39,3.39a1.39,1.39,0,0,0,2,0l.4-.4A1.4,1.4,0,0,0,15.28,12.71Zm-9-2.25a4.16,4.16,0,1,1,4.16-4.17A4.16,4.16,0,0,1,6.3,10.46Z"></path></svg>
+            </button>
+        </form>
+        {% if results %}
+            <div id="results-count">{{results.count_str}}</div>
+            <ul id="results-list">
+            {% for result in results.list %}
+                <li class="text-japanese">
+                    <div>{{ result.markup | safe }}</div>
+                </li>
+            {% endfor %}
+            </ul>
+        {% endif %}
+    </div>
+</body>
+</html>
