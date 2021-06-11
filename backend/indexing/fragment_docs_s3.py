@@ -65,6 +65,8 @@ if __name__ == '__main__':
                 if (clen >= args.minlen) and (clen <= args.maxlen):
                     located_fragments.append({
                         'text': frag['text'],
+                        'count_chars': len(frag['text']),
+                        'count_mchars': count_meaty_chars(frag['text']),
                         'loc': frag['loc'],
                     })
             fragdb.insert_source_fragments(source, located_fragments)
