@@ -1,4 +1,5 @@
 import os
+import time
 
 from flask import Flask, request, render_template, redirect, url_for
 import requests
@@ -168,6 +169,7 @@ def ja_fsearch():
 
     results = {}
 
+    t0 = time.time()
     main_resp = requests.get(f'{ES_BASE_URL}/{FRAGMENT_INDEX}/_search', json={
         'query': {
             'bool': {
@@ -177,7 +179,7 @@ def ja_fsearch():
         'sort': [
             {'mscore': 'desc'},
         ],
-        'track_total_hits': False, # required for early termination
+        # 'track_total_hits': False, # required for early termination
         'highlight': {
             'type': 'unified',
             'fields': {
@@ -188,13 +190,25 @@ def ja_fsearch():
         },
         'size': FRAGMENT_RESULTS_PER_PAGE,
     })
+    dt = time.time() - t0
     main_resp.raise_for_status()
+    print(f'took {dt}s')
 
     main_resp_body = main_resp.json()
+    hitcount_value = main_resp_body['hits']['total']['value']
 
-    hit_count = len(main_resp_body['hits']['hits'])
-    qual = 'first ' if (hit_count >= FRAGMENT_RESULTS_PER_PAGE) else ''
-    results['count_str'] = f'showing {qual}{hit_count} results'
+    hitcount_value = main_resp_body['hits']['total']['value']
+    if main_resp_body['hits']['total']['relation'] == 'eq':
+        hitcount_qual = ''
+    elif main_resp_body['hits']['total']['relation'] == 'gte':
+        hitcount_qual = '>'
+    else:
+        assert False
+    hitcount_str = hitcount_qual + str(hitcount_value)
+    if hitcount_value > FRAGMENT_RESULTS_PER_PAGE:
+        results['count_str'] = f'showing {FRAGMENT_RESULTS_PER_PAGE} of {hitcount_str} results'
+    else:
+        results['count_str'] = f'showing {hitcount_str} results'
 
     results_list = []
     for hit in main_resp_body['hits']['hits']:
