@@ -5,6 +5,7 @@ import hashlib
 
 import boto3
 
+from . import fragdb
 from .fragment_doc import fragment_srt, fragment_syosetu
 from ..util.count_chars import count_meaty_chars
 
@@ -12,17 +13,17 @@ def log_reject(text, sent, reason):
     print('\t'.join([reason, sent, text, s3key]), file=reject_file)
 
 if __name__ == '__main__':
-    global reject_file
-
-    reject_file = open('frag_rejects.txt', 'w')
-    frag_file = open('frag_outs.txt', 'w')
-    src_file = open('frag_sources.txt', 'w')
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--minlen', type=int, default=0)
     parser.add_argument('--maxlen', type=int, default=1000)
+    parser.add_argument('sqlite_db')
+    parser.add_argument('reject_file')
     parser.add_argument('s3_prefix')
     args = parser.parse_args()
+
+    reject_file = open(args.reject_file, 'x') # x means create only, fail if exists. safety measure
+
+    fragdb.open(args.sqlite_db)
 
     s3 = boto3.client('s3')
     bucket = os.getenv('MASSIF_DOCS_BUCKET')
@@ -50,13 +51,21 @@ if __name__ == '__main__':
             else:
                 assert False
 
-            for frag in frags:
-                frag['src'] = source_id
-                frag['tags'] = tags
+            source = {
+                's3key': s3key,
+                'title': doc['title'],
+                'pubdate': doc.get('published'),
+                'url': doc.get('url'),
+                'tags' : tags or None,
+            }
 
+            located_fragments = []
             for frag in frags:
                 clen = count_meaty_chars(frag['text'])
                 if (clen >= args.minlen) and (clen <= args.maxlen):
-                    print('\t'.join([frag['text'], frag['src'], frag['loc'] or '', frag['tags']]), file=frag_file)
+                    located_fragments.append({
+                        'text': frag['text'],
+                        'loc': frag['loc'],
+                    })
+            fragdb.insert_source_fragments(source, located_fragments)
 
-            print('\t'.join([source_id, tags, doc['title'], doc.get('published', ''), doc.get('url', '')]), file=src_file)
