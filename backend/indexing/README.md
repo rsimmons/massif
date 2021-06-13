@@ -2,9 +2,9 @@
 
 Current Elasticsearch index creation:
 ```
-curl -X DELETE "localhost:9200/fragment_ja_syosetu_20210609?pretty"
+curl -X DELETE "localhost:9200/fragment_ja_syosetu_20210611?pretty"
 
-curl -X PUT "localhost:9200/fragment_ja_syosetu_20210609?pretty" -H 'Content-Type: application/json' -d'
+curl -X PUT "localhost:9200/fragment_ja_syosetu_20210611?pretty" -H 'Content-Type: application/json' -d'
 {
   "settings": {
     "index": {
@@ -36,6 +36,37 @@ curl -X PUT "localhost:9200/fragment_ja_syosetu_20210609?pretty" -H 'Content-Typ
       },
       "mscore": {
         "type": "float"
+      },
+      "tag_sets": {
+        "type": "keyword"
+      },
+      "hits": {
+        "type": "object",
+        "enabled": false
+      }
+    }
+  }
+}'
+
+curl -X DELETE "localhost:9200/source_ja_syosetu_20210611?pretty"
+
+curl -X PUT "localhost:9200/source_ja_syosetu_20210611?pretty" -H 'Content-Type: application/json' -d'
+{
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "title": {
+        "type": "keyword",
+        "index": false
+      },
+      "published": {
+        "type": "date",
+        "format": "strict_year||strict_date",
+        "index": false
+      },
+      "url": {
+        "type": "keyword",
+        "index": false
       }
     }
   }
@@ -45,12 +76,20 @@ curl -X POST "localhost:9200/_aliases?pretty" -H 'Content-Type: application/json
 {
   "actions" : [
     { "remove" : { "index" : "*", "alias" : "fragment_ja" } },
+    { "remove" : { "index" : "*", "alias" : "source_ja" } },
     { "add" : {
       "indices" : [
-        "fragment_ja_syosetu_20210609"
+        "fragment_ja_syosetu_20210611"
       ],
       "alias" : "fragment_ja"
+    } },
+    { "add" : {
+      "indices" : [
+        "source_ja_syosetu_20210611"
+      ],
+      "alias" : "source_ja"
     } }
   ]
-}'
+}
+'
 ```

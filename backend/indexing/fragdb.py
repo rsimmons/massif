@@ -1,3 +1,5 @@
+import json
+
 import sqlite3
 
 '''
@@ -19,7 +21,7 @@ CREATE TABLE source (
   tags TEXT
 );
 
-CREATE TABLE location (
+CREATE TABLE hit (
   fragment_id INTEGER NOT NULL,
   source_id INTEGER NOT NULL,
   loc TEXT NOT NULL,
@@ -39,9 +41,28 @@ def close():
         cxn.close()
     cxn = None
 
-def iter_fragments(tname):
+def iter_fragments_plus():
     cur = cxn.cursor()
-    return cur.execute(f'SELECT * FROM {tname}')
+    for row in cur.execute('''SELECT f.text, f.logprob, f.count_chars, f.count_mchars, json_group_array(json_object('source_id', h.source_id, 'loc', h.loc, 'tags', s.tags)) FROM fragment f INNER JOIN hit h ON f.id = h.fragment_id, source s ON s.id = h.source_id WHERE f.logprob IS NOT NULL GROUP BY f.text'''):
+        yield {
+            'text': row[0],
+            'logprob': row[1],
+            'count_chars': row[2],
+            'count_mchars': row[3],
+            'hits': json.loads(row[4]), # has fields source_id, loc, tags
+        }
+
+def iter_sources():
+    cur = cxn.cursor()
+    for row in cur.execute('SELECT id, s3key, title, pubdate, url, tags FROM source'):
+        yield {
+            'id': row[0],
+            's3key': row[1],
+            'title': row[2],
+            'pubdate': row[3],
+            'url': row[4],
+            'tags': row[5],
+        }
 
 def insert_source_fragments(source, located_fragments):
     cur = cxn.cursor()
@@ -57,6 +78,6 @@ def insert_source_fragments(source, located_fragments):
         cur.execute('INSERT INTO fragment (text, count_chars, count_mchars) VALUES (?, ?, ?) ON CONFLICT (text) DO NOTHING', (located_fragment['text'], located_fragment['count_chars'], located_fragment['count_mchars']))
         # https://www.mail-archive.com/sqlite-users@mailinglists.sqlite.org/msg118667.html
         # I am a little skeptical that the performance won't be bad, but let's see.
-        cur.execute('INSERT INTO location (fragment_id, source_id, loc) VALUES ((SELECT id FROM fragment WHERE text = ?), ?, ?) ON CONFLICT DO NOTHING', (located_fragment['text'], source_id, located_fragment['loc']))
+        cur.execute('INSERT INTO hit (fragment_id, source_id, loc) VALUES ((SELECT id FROM fragment WHERE text = ?), ?, ?) ON CONFLICT DO NOTHING', (located_fragment['text'], source_id, located_fragment['loc']))
 
     cur.execute('COMMIT')
