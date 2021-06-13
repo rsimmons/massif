@@ -22,6 +22,10 @@ def index_sources_batch(source_rows):
             obj['published'] = source['pubdate']
         if source['url']:
             obj['url'] = source['url']
+        if source['tags']:
+            obj['tags'] = [t for t in source['tags'].split(',') if t]
+        else:
+            obj['tags'] = []
 
         lines.append(json.dumps({'index': {'_id': source['id']}}) + '\n')
         lines.append(json.dumps(obj) + '\n')
