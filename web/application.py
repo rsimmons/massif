@@ -27,6 +27,10 @@ def before_request():
 def index():
     return redirect(url_for('ja'))
 
+@app.route('/about')
+def about():
+    return render_template('about.html')
+
 @app.route('/ja')
 def ja():
     return render_template('index.html')
@@ -95,9 +99,9 @@ def ja_fsearch():
         assert False
     hitcount_str = hitcount_qual + str(hitcount_value)
     if hitcount_value > FRAGMENT_RESULTS_PER_PAGE:
-        results['count_str'] = f'showing first {FRAGMENT_RESULTS_PER_PAGE} of {hitcount_str} unique matching sentences'
+        results['count_str'] = f'first {FRAGMENT_RESULTS_PER_PAGE} of {hitcount_str} unique matching sentences'
     else:
-        results['count_str'] = f'showing {hitcount_str}  unique matching sentences'
+        results['count_str'] = f'{hitcount_str}  unique matching sentences'
 
     # FIGURE OUT SOURCE IDS TO FETCH
     source_infos = [] # list of {total_hits, source_id, loc}
