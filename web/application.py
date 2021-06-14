@@ -57,6 +57,8 @@ def ja_fsearch():
     # PARSE QUERY
     phrases = query.split()
     print('query phrases are', phrases)
+    if not phrases:
+        return redirect(url_for('ja'))
 
     results = {}
 
