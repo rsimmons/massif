@@ -35,24 +35,6 @@ em {
    color: #800;
 }
 
-ul {
-  list-style-type: none;
-  padding: 0;
-  margin: 0;
-}
-
-li {
-    padding: 15px 10px;
-    margin-top: 8px;
-    /* border: 1px solid #ccc; */
-    border-radius: 5px;
-    box-shadow: 0 0 2px rgba(0,0,0,0.35);
-}
-
-li p:first-child {
-    margin-top: 0;
-}
-
 #search-form {
     position: relative;
     margin-bottom: 1em;
@@ -121,12 +103,39 @@ li p:first-child {
     flex: 1;
 }
 
-#results-list {
+#results-area {
     margin-top: 1em;
 }
 
 #results-list a {
     color: inherit;
+}
+
+#results-list ul {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+#results-list li {
+    padding: 15px 10px;
+    margin-top: 8px;
+    /* border: 1px solid #ccc; */
+    border-radius: 5px;
+    box-shadow: 0 0 2px rgba(0,0,0,0.35);
+}
+
+#results-list li p:first-child {
+    margin-top: 0;
+}
+
+#tips {
+    font-size: 16px;
+    color: #555;
+}
+
+#tips a {
+    color: #a00;
 }
 
 .source-anchor-link {
@@ -184,16 +193,26 @@ li p:first-child {
             <div id="results-count">{% if results %}{{results.count_str}}{% else %}searching 30,391,569 unique sentences{% endif %}</div>
             <div id="links"><a href="/about">about</a></div>
         </div>
+        <div id="results-area">
         {% if results %}
-            <ul id="results-list">
+            <div id="results-list"><ul>
             {% for result in results.list %}
                 <li class="text-japanese">
                     <div>{{ result.markup | safe }}</div>
                     <div class="result-meta">{% for tag in result.tags %}<span class="tag">{{ tag }}</span> {% endfor %}{% if result.url %}<a href="{{ result.url }}" class="source_link">{{ result.title }}</a>{% else %}{{ result.title }}{% endif %} ({{result.published}}){%if result.time_range %} <span class="timerange">{{ result.time_range }}</span>{% endif %}{%if result.other_count %} <span class="other-count">(and {{result.other_count}} other{%if result.other_count > 1 %}s{% endif %})</span>{% endif %}</div>
                 </li>
             {% endfor %}
-            </ul>
+            </ul></div>
+        {% else %}
+            <div id="tips">
+                <p>Try searching for
+                <br/>words: <a href="/ja/search?q=もちろん">もちろん</a>　<a href="/ja/search?q=セミ">セミ</a>　<a href="/ja/search?q=光景">光景</a>　<a href="/ja/search?q=あくまで">あくまで</a>　<a href="/ja/search?q=揃う">揃う</a>　<a href="/ja/search?q=痙攣">痙攣</a>
+                <br/>phrases: <a href="/ja/search?q=写真を撮る">写真を撮る</a>　<a href="/ja/search?q=表情を浮かべる">表情を浮かべる</a>　<a href="/ja/search?q=蛇口をひねる">蛇口をひねる</a>
+                <br/>multiple in the same sentence: <a href="/ja/search?q=冒険者 戦う">冒険者 戦う</a>　<a href="/ja/search?q=過去 時間">過去 時間</a>
+                </p>
+            </div>
         {% endif %}
+        </div>
     </div>
 </body>
 </html>
