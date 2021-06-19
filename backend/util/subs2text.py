@@ -1,4 +1,5 @@
 import os
+import sys
 
 import argparse
 import pysubs2
@@ -35,7 +36,15 @@ if __name__ == "__main__":
         for fn in files:
             subfn = subdir + os.sep + fn
 
-            subs = pysubs2.load(subfn, encoding='utf-8')
+            if os.path.splitext(subfn)[1].lower() not in ['.srt', '.ass']:
+                continue
+
+            try:
+                subs = pysubs2.load(subfn, encoding='utf-8')
+            except:
+                print('FAILED ON', subfn, file=sys.stderr)
+                raise
+
             subs.remove_miscellaneous_events()
             for line in subs:
                 t = line.plaintext
