@@ -129,13 +129,21 @@ em {
     margin-top: 0;
 }
 
-#tips {
+#before-results {
     font-size: 16px;
     color: #555;
 }
 
-#tips a {
+#before-results a {
     color: #a00;
+}
+
+#before-results > div {
+    margin-top: 2em;
+}
+
+#testimonials {
+    color: grey;
 }
 
 .source-anchor-link {
@@ -204,12 +212,18 @@ em {
             {% endfor %}
             </ul></div>
         {% else %}
-            <div id="tips">
-                <p>Try searching for
-                <br/>words: <a href="/ja/search?q=もちろん">もちろん</a>　<a href="/ja/search?q=セミ">セミ</a>　<a href="/ja/search?q=光景">光景</a>　<a href="/ja/search?q=あくまで">あくまで</a>　<a href="/ja/search?q=揃う">揃う</a>　<a href="/ja/search?q=痙攣">痙攣</a>
-                <br/>phrases: <a href="/ja/search?q=写真を撮る">写真を撮る</a>　<a href="/ja/search?q=表情を浮かべる">表情を浮かべる</a>　<a href="/ja/search?q=蛇口をひねる">蛇口をひねる</a>
-                <br/>multiple in the same sentence: <a href="/ja/search?q=冒険者 戦う">冒険者 戦う</a>　<a href="/ja/search?q=過去 時間">過去 時間</a>
-                </p>
+            <div id="before-results">
+                <div id="tips">
+                    <p>Try searching for
+                    <br/>words: <a href="/ja/search?q=もちろん">もちろん</a>　<a href="/ja/search?q=セミ">セミ</a>　<a href="/ja/search?q=光景">光景</a>　<a href="/ja/search?q=あくまで">あくまで</a>　<a href="/ja/search?q=揃う">揃う</a>　<a href="/ja/search?q=痙攣">痙攣</a>
+                    <br/>phrases: <a href="/ja/search?q=写真を撮る">写真を撮る</a>　<a href="/ja/search?q=表情を浮かべる">表情を浮かべる</a>　<a href="/ja/search?q=蛇口をひねる">蛇口をひねる</a>
+                    <br/>multiple in the same sentence: <a href="/ja/search?q=冒険者 戦う">冒険者 戦う</a>　<a href="/ja/search?q=過去 時間">過去 時間</a>
+                    </p>
+                </div>
+                <div id="testimonials">
+                    <p>"dangerously based"<br><small>-<a href="https://www.reddit.com/r/LearnJapanese/comments/o47v42/i_built_massif_a_site_that_lets_you_search_30/h2ijpq9/">Exciting_Dingo7225</a></small></p>
+                    <p>"This is an AMAZING resource. Thank you so much! Man, I wish I had this when I was first starting out; this is way better than yourei, imo. Great for when the sentence I found the thing I want to learn just isn't doing it for me."<br><small>-<a href="https://www.reddit.com/r/LearnJapanese/comments/o47v42/i_built_massif_a_site_that_lets_you_search_30/h2wpdmx/">soku1</a></small></p>
+                </div>
             </div>
         {% endif %}
         </div>
