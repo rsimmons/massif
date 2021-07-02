@@ -2,7 +2,7 @@ import os
 import time
 import random
 
-from flask import Flask, request, render_template, redirect, url_for
+from flask import Flask, request, render_template, redirect, url_for, escape
 import requests
 from bs4 import BeautifulSoup
 
@@ -154,7 +154,9 @@ def ja_fsearch():
     for (hit, source_info) in zip(main_resp_body['hits']['hits'], source_infos):
         xhit = {}
 
-        hit_html = hit['highlight']['text'][0]
+        # If we only have exact phrase matches, then there won't be a highlighted version, so we just
+        # escape the raw text and use that.
+        hit_html = hit['highlight']['text'][0] if ('highlight' in hit) else str(escape(hit['_source']['text']))
         # HACKY: manually highlight exact matches.
         # Can result in nesting, but that's not a problem. Won't handle not-nesting overlaps.
         for exact_phrase in exact_phrases:
