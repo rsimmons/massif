@@ -60,14 +60,28 @@ def ja_fsearch():
     if not phrases:
         return redirect(url_for('ja'))
 
-    results = {}
 
     # SEARCH FRAGMENTS
+    results = {}
+
+    subqueries = []
+    exact_phrases = []
+    for phrase in phrases:
+        if phrase.startswith('"') and phrase.endswith('"') and (len(phrase) >= 3):
+            exact_phrase = phrase[1:-1]
+            if ('*' in exact_phrase) or ('?' in exact_phrase):
+                # if someone uses these, just skip it, because they have special meaning
+                continue
+            subqueries.append({'wildcard': {'text.wc': {'value': '*' + exact_phrase + '*'}}})
+            exact_phrases.append(exact_phrase)
+        else:
+            subqueries.append({'match_phrase': {'text': phrase}})
+
     t0 = time.time()
     main_resp = requests.get(f'{ES_BASE_URL}/{FRAGMENT_INDEX}/_search', json={
         'query': {
             'bool': {
-                'must': [{'match_phrase': {'text': phrase}} for phrase in phrases]
+                'must': subqueries,
             }
         },
         'sort': [
@@ -79,6 +93,8 @@ def ja_fsearch():
             'fields': {
                 'text': {
                     'number_of_fragments': 0, # forces it to return entire field
+                    # I think we could use the following if we indexed with with_positions_offsets and then did fvh highlight?
+                    #'matched_fields': ['text', 'text.wc'],
                 },
             },
         },
@@ -139,6 +155,10 @@ def ja_fsearch():
         xhit = {}
 
         hit_html = hit['highlight']['text'][0]
+        # HACKY: manually highlight exact matches.
+        # Can result in nesting, but that's not a problem. Won't handle not-nesting overlaps.
+        for exact_phrase in exact_phrases:
+            hit_html = hit_html.replace(exact_phrase, '<em>' + exact_phrase + '</em>')
         xhit['markup'] = str(hit_html)
 
         source_record = source_map[str(source_info['source_id'])]

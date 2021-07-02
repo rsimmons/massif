@@ -17,8 +17,7 @@
   tasks: 
   - name: install Elasticsearch
     apt: 
-      deb: https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.8.1-arm64.deb
-      #deb: https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.8.1-amd64.deb
+      deb: https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.10.1-arm64.deb
 #  - name: make sure directory exists
 #    file:
 #      path: /etc/systemd/system/elasticsearch.service.d
@@ -58,13 +57,13 @@
       line: 'discovery.type: single-node'
   - name: download sudachi plugin
     get_url:
-      url: https://github.com/WorksApplications/elasticsearch-sudachi/releases/download/v7.8.1-2.0.3/analysis-sudachi-7.8.1-2.0.3.zip
-      dest: /tmp/analysis-sudachi-7.8.1-2.0.3.zip
+      url: https://github.com/WorksApplications/elasticsearch-sudachi/releases/download/v2.1.0/analysis-sudachi-7.10.1-2.1.0.zip
+      dest: /tmp/analysis-sudachi-7.10.1-2.1.0.zip
       mode: '0644'
   - name: download sudachi dictionary
     get_url:
-      url: https://object-storage.tyo2.conoha.io/v1/nc_2520839e1f9641b08211a5c85243124a/sudachi/sudachi-dictionary-20200722-core.zip
-      dest: /tmp/sudachi-dictionary-20200722-core.zip
+      url: http://sudachi.s3-website-ap-northeast-1.amazonaws.com/sudachidict/sudachi-dictionary-20210608-core.zip
+      dest: /tmp/sudachi-dictionary-20210608-core.zip
       mode: '0644'
   - name: ensure unzip is installed
     apt:
@@ -72,10 +71,10 @@
       state: present
   - name: unzip sudachi dictionary
     unarchive:
-      src: /tmp/sudachi-dictionary-20200722-core.zip
+      src: /tmp/sudachi-dictionary-20210608-core.zip
       dest: /tmp
       remote_src: yes
-      creates: /tmp/sudachi-dictionary-20200722
+      creates: /tmp/sudachi-dictionary-20210608
   - name: check if sudachi plugin is installed
     shell: /usr/share/elasticsearch/bin/elasticsearch-plugin list | grep analysis-sudachi
     register: sudachi_check
@@ -83,7 +82,7 @@
 #  - debug:
 #      var: sudachi_check
   - name: install sudachi plugin if missing
-    command: /usr/share/elasticsearch/bin/elasticsearch-plugin install file:///tmp/analysis-sudachi-7.8.1-2.0.3.zip
+    command: /usr/share/elasticsearch/bin/elasticsearch-plugin install file:///tmp/analysis-sudachi-7.10.1-2.1.0.zip
     when: sudachi_check is failed
   - name: make sudcahi directory inside config directory
     file:
@@ -94,7 +93,7 @@
       group: elasticsearch
   - name: copy sudachi dictionary into place
     copy:
-      src: /tmp/sudachi-dictionary-20200722/system_core.dic
+      src: /tmp/sudachi-dictionary-20210608/system_core.dic
       remote_src: yes
       dest: /etc/elasticsearch/sudachi/system_core.dic
       mode: '0664'
