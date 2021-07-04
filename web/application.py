@@ -2,11 +2,11 @@ import os
 import time
 import random
 
-from flask import Flask, request, render_template, redirect, url_for, escape
+from flask import Flask, request, render_template, redirect, url_for, escape, send_from_directory, abort
 import requests
-from bs4 import BeautifulSoup
 
 app = Flask(__name__)
+application = app # for EB
 
 ES_HOST = os.getenv('ES_HOST', 'localhost')
 ES_BASE_URL = f'http://{ES_HOST}:9200'
@@ -183,4 +183,19 @@ def ja_fsearch():
 
     return render_template('index.html', query=query, results=results)
 
-application = app # for EB
+
+PATHFINDER_BUILD_DIR = 'frontend/build'
+
+@app.route('/ja/pathfinder')
+def ja_pathfinder_root():
+    if app.env != 'development':
+        abort(404)
+
+    return send_from_directory(PATHFINDER_BUILD_DIR, 'index.html')
+
+@app.route("/ja/pathfinder/<path:name>")
+def ja_pathfinder_sub(name):
+    if app.env != 'development':
+        abort(404)
+
+    return send_from_directory(PATHFINDER_BUILD_DIR, name)
