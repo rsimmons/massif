@@ -2,11 +2,23 @@ import os
 import time
 import random
 
-from flask import Flask, request, render_template, redirect, url_for, escape, send_from_directory, abort
+from flask import Flask, request, render_template, redirect, url_for, escape, send_from_directory, abort, jsonify
+from flask_cors import CORS
 import requests
 
+from analysis import ja_get_text_normal_counts
+
 app = Flask(__name__)
-application = app # for EB
+
+# This avoids errors in dev
+if app.env == 'development':
+    CORS(app)
+
+# Elastic Beanstalk requires "application" to be set
+application = app
+
+# Not necessary to keep ASCII, and impedes debugging Japanese
+app.config['JSON_AS_ASCII'] = False
 
 ES_HOST = os.getenv('ES_HOST', 'localhost')
 ES_BASE_URL = f'http://{ES_HOST}:9200'
@@ -102,7 +114,7 @@ def ja_fsearch():
     })
     dt = time.time() - t0
     main_resp.raise_for_status()
-    print(f'took {dt}s')
+    print(f'ES fragments request took {dt}s')
 
     # FORMAT RESULT COUNT
     main_resp_body = main_resp.json()
@@ -199,3 +211,43 @@ def ja_pathfinder_sub(name):
         abort(404)
 
     return send_from_directory(PATHFINDER_BUILD_DIR, name)
+
+@app.route("/api/get_text_normal_counts", methods=['POST'])
+def api_get_text_normals():
+    req = request.get_json()
+    text = req['text']
+    normal_counts = ja_get_text_normal_counts(text)
+    return jsonify(normal_counts)
+
+@app.route("/api/get_normal_fragments", methods=['POST'])
+def api_get_normal_fragments():
+    req = request.get_json()
+    normal = req['normal']
+    print('normal', repr(normal))
+
+    t0 = time.time()
+    main_resp = requests.get(f'{ES_BASE_URL}/{FRAGMENT_INDEX}/_search', json={
+        'query': {
+            # NOTE: The normal will still get run through the analyzer. I hope that this is a no-op,
+            # otherwise this won't work quite right.
+            # I think we could use a different query to make it skip analysis, but I'm not sure
+            # that our normalization will exactly match the normalization done by ES, so this seems
+            # slightly safer to me.
+            'match_phrase': {'text': normal},
+        },
+        'sort': [
+            {'mscore': 'desc'},
+        ],
+        'track_total_hits': False, # allows early termination, because we don't care about result count
+        'size': 100,
+    })
+    dt = time.time() - t0
+    main_resp.raise_for_status()
+    print(f'ES fragments request took {dt}s')
+
+    main_resp_body = main_resp.json()
+    fragments = []
+    for hit in main_resp_body['hits']['hits']:
+        fragments.append(hit['_source']['text'])
+
+    return jsonify(fragments)
