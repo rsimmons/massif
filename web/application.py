@@ -6,7 +6,7 @@ from flask import Flask, request, render_template, redirect, url_for, escape, se
 from flask_cors import CORS
 import requests
 
-from analysis import ja_get_text_normal_counts
+from analysis import ja_get_text_normal_counts, ja_get_text_normals_and_reading
 
 app = Flask(__name__)
 
@@ -223,7 +223,6 @@ def api_get_text_normals():
 def api_get_normal_fragments():
     req = request.get_json()
     normal = req['normal']
-    print('normal', repr(normal))
 
     t0 = time.time()
     main_resp = requests.get(f'{ES_BASE_URL}/{FRAGMENT_INDEX}/_search', json={
@@ -248,6 +247,12 @@ def api_get_normal_fragments():
     main_resp_body = main_resp.json()
     fragments = []
     for hit in main_resp_body['hits']['hits']:
-        fragments.append(hit['_source']['text'])
+        text = hit['_source']['text']
+        normals, reading = ja_get_text_normals_and_reading(text)
+        fragments.append({
+            'text': text,
+            'normals': list(normals),
+            'reading': reading,
+        })
 
     return jsonify(fragments)

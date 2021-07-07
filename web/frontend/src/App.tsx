@@ -1,12 +1,43 @@
-import React, {useReducer} from 'react';
+import React, {useEffect, useReducer} from 'react';
 import {reducer, INITIAL_STATE} from './State';
 import './App.css';
 
 function App() {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
 
-  const updateSuggestion = (): void => {
-  };
+  useEffect(() => {
+    if (state.suggestedNormal && (state.suggestedFragments === null)) {
+      // need to fetch fragments for suggestedNormal
+      dispatch({tag: 'log_status', status: 'Fetching fragments...'});
+
+      dispatch({tag: 'set_suggested_fragments', fragments: 'fetching'});
+
+      (async () => {
+        const response = await fetch('http://localhost:5000/api/get_normal_fragments', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            'normal': state.suggestedNormal,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(); // TODO: handle
+        }
+
+        const content = await response.json();
+
+        // NOTE: We don't validate that is has the right types
+
+        dispatch({tag: 'set_suggested_fragments', fragments: content});
+      })();
+
+      dispatch({tag: 'log_status', status: 'Fragments updated.'});
+    }
+  });
 
   const analyzeKnownText = (text: string): void => {
     const sentences: Array<string> = [];
@@ -22,7 +53,7 @@ function App() {
     (async () => {
       dispatch({tag: 'log_status', status: 'Analyzing...'});
 
-      const rawResponse = await fetch('http://localhost:5000/api/get_text_normal_counts', {
+      const response = await fetch('http://localhost:5000/api/get_text_normal_counts', {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
@@ -33,11 +64,11 @@ function App() {
         }),
       });
 
-      if (!rawResponse.ok) {
+      if (!response.ok) {
         throw new Error(); // TODO: handle
       }
 
-      const content = await rawResponse.json();
+      const content = await response.json();
 
       dispatch({tag: 'log_status', status: 'Done analyzing.'});
 
@@ -48,12 +79,10 @@ function App() {
       }
 
       dispatch({tag: 'add_known_normals', normals});
-
-      updateSuggestion();
     })();
   };
 
-  const onKnownTextFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleKnownTextFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if ((files !== null) && (files.length > 0)) {
       const file = files[0];
@@ -72,11 +101,25 @@ function App() {
     }
   };
 
+  const handleKnowSuggestedNormalClick = () => {
+    if (state.suggestedNormal === null) {
+      throw new Error();
+    }
+    dispatch({tag: 'add_known_normals', normals: [state.suggestedNormal]});
+  }
+
   return (
     <div className="App">
-      <input type="file" id="known-text-file" onChange={onKnownTextFileChange} />
-      <div>Known count: {state.knownNormals.size}</div>
-      <div>{state.statusLog.map(entry => (<React.Fragment key={entry}>{entry}<br/></React.Fragment>))}</div>
+      <p><input type="file" id="known-text-file" onChange={handleKnownTextFileChange} /></p>
+      <p>Known count: {state.knownNormals.size}</p>
+      <p>Suggested normal: {state.suggestedNormal} {(state.suggestedNormal !== null) && <button onClick={handleKnowSuggestedNormalClick}>I know this</button>}</p>
+      <div>
+        <p>Suggested fragments:</p>
+        <ul>{(typeof(state.suggestedFragments) === 'object') && state.suggestedFragments?.map((frag, idx) => {
+          return <li key={idx}>{frag.text}<br/>{frag.reading}</li>;
+        })}</ul>
+      </div>
+      <p>{state.statusLog.map((entry, idx) => (<React.Fragment key={idx}>{entry}<br/></React.Fragment>))}</p>
     </div>
   );
 }
