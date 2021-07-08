@@ -6,7 +6,7 @@ from flask import Flask, request, render_template, redirect, url_for, escape, se
 from flask_cors import CORS
 import requests
 
-from analysis import ja_get_text_normal_counts, ja_get_text_normals_and_reading
+from analysis import ja_get_text_morphemes, ja_get_morphemes_normal_counts, ja_get_morphemes_reading
 
 app = Flask(__name__)
 
@@ -216,7 +216,8 @@ def ja_pathfinder_sub(name):
 def api_get_text_normals():
     req = request.get_json()
     text = req['text']
-    normal_counts = ja_get_text_normal_counts(text)
+    morphemes = ja_get_text_morphemes(text)
+    normal_counts = ja_get_morphemes_normal_counts(morphemes)
     return jsonify(normal_counts)
 
 @app.route("/api/get_normal_fragments", methods=['POST'])
@@ -248,10 +249,12 @@ def api_get_normal_fragments():
     fragments = []
     for hit in main_resp_body['hits']['hits']:
         text = hit['_source']['text']
-        normals, reading = ja_get_text_normals_and_reading(text)
+        morphemes = ja_get_text_morphemes(text)
+        normal_counts = ja_get_morphemes_normal_counts(morphemes)
+        reading = ja_get_morphemes_reading(morphemes)
         fragments.append({
             'text': text,
-            'normals': list(normals),
+            'normals': list(normal_counts.keys()),
             'reading': reading,
         })
 

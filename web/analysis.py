@@ -25,9 +25,9 @@ def char_could_have_reading(c):
 def ignore_morpheme(m):
     return m.part_of_speech() in ['補助記号', '空白']
 
-def ja_get_text_normal_counts(text):
+def ja_get_morphemes_normal_counts(morphemes):
     result = Counter()
-    for m in tokenizer_obj.tokenize(text, tokenizer.Tokenizer.SplitMode.B):
+    for m in morphemes:
         if not ignore_morpheme(m):
             result[m.normalized_form()] += 1
     return result
@@ -115,38 +115,28 @@ ADJUSTED_READINGS = {
 def ja_get_morphemes_reading(morphemes):
     result_pieces = []
 
-    for m in morphemes:
-        pos = m.part_of_speech()
-        surface = m.surface()
-        if (surface in ADJUSTED_READINGS) and all(x == y for (x, y) in zip(pos, ADJUSTED_READINGS[surface][0])):
-            result_pieces.append((' ' if result_pieces else '') + ADJUSTED_READINGS[surface][1])
-        elif (not m.reading_form()) or (not (has_any_kanji(surface) or has_any_numerals(surface))):
-            # If there isn't any reading form (for stuff like 'foo')
-            # or there aren't any kanji or numerals,
-            # then just copy the surface form.
-            # This avoids weird bugs where the reading doesn't really match the surface.
-            result_pieces.append(surface)
-        else:
-            result_pieces.append(ja_match_furigana(surface, m.reading_form(), bool(result_pieces)))
+    try:
+        for m in morphemes:
+            pos = m.part_of_speech()
+            surface = m.surface()
+            if (surface in ADJUSTED_READINGS) and all(x == y for (x, y) in zip(pos, ADJUSTED_READINGS[surface][0])):
+                result_pieces.append((' ' if result_pieces else '') + ADJUSTED_READINGS[surface][1])
+            elif (not m.reading_form()) or (not (has_any_kanji(surface) or has_any_numerals(surface))):
+                # If there isn't any reading form (for stuff like 'foo')
+                # or there aren't any kanji or numerals,
+                # then just copy the surface form.
+                # This avoids weird bugs where the reading doesn't really match the surface.
+                result_pieces.append(surface)
+            else:
+                result_pieces.append(ja_match_furigana(surface, m.reading_form(), bool(result_pieces)))
+    except:
+        print('ERROR getting reading of', morphemes, file=sys.stderr)
+        raise
 
     return ''.join(result_pieces)
 
-def ja_get_text_normals_and_reading(text):
-    normals_set = set()
-
-    morphemes = tokenizer_obj.tokenize(text, tokenizer.Tokenizer.SplitMode.B)
-
-    for m in morphemes:
-        if not ignore_morpheme(m):
-            normals_set.add(m.normalized_form())
-
-    try:
-        reading = ja_get_morphemes_reading(morphemes)
-    except:
-        print('ERROR getting reading of', repr(text), file=sys.stderr)
-        raise
-
-    return normals_set, reading
+def ja_get_text_morphemes(text):
+    return tokenizer_obj.tokenize(text, tokenizer.Tokenizer.SplitMode.B)
 
 if __name__ == '__main__':
     TEST_READING_FRAGMENTS = [
