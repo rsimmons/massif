@@ -15,6 +15,10 @@ NUMERALS_RE = re.compile('[0-9０-９]')
 def has_any_numerals(s):
     return bool(NUMERALS_RE.search(s))
 
+ALL_NUMERALS_RE = re.compile('^[0-9０-９]+$')
+def is_all_numerals(s):
+    return bool(ALL_NUMERALS_RE.match(s))
+
 def char_could_have_reading(c):
     return has_any_kanji(c) or has_any_numerals(c) or c in '々〇カケヵヶぁぃぅぇぉァィゥェォ'
 
@@ -46,7 +50,7 @@ def ja_is_repetitive(text, morphemes):
     return False
 
 def ja_ignore_morpheme(m):
-    return m.part_of_speech() in ['補助記号', '空白']
+    return m.part_of_speech()[0] in ['補助記号', '空白']
 
 def ja_get_morphemes_normal_counts(morphemes):
     result = Counter()
@@ -144,9 +148,10 @@ def ja_get_morphemes_reading(morphemes):
             surface = m.surface()
             if (surface in ADJUSTED_READINGS) and all(x == y for (x, y) in zip(pos, ADJUSTED_READINGS[surface][0])):
                 result_pieces.append((' ' if result_pieces else '') + ADJUSTED_READINGS[surface][1])
-            elif (not m.reading_form()) or (not (has_any_kanji(surface) or has_any_numerals(surface))):
+            elif (not m.reading_form()) or (not (has_any_kanji(surface) or has_any_numerals(surface))) or is_all_numerals(surface):
                 # If there isn't any reading form (for stuff like 'foo')
                 # or there aren't any kanji or numerals,
+                # or it's _just_ numerals (which ends up being not very useful)
                 # then just copy the surface form.
                 # This avoids weird bugs where the reading doesn't really match the surface.
                 result_pieces.append(surface)
@@ -175,13 +180,16 @@ if __name__ == '__main__':
         ('アップした', 'アップした'),
         ('これ。\nそれ。。\nあれ。\r\n', 'これ。\nそれ。。\nあれ。\r\n'),
         ('えええええええええええーーーーーーーーーーーーーっ！', 'えええええええええええーーーーーーーーーーーーーっ！'),
-        ('１つ', '１[ひと]つ'),
-        ('２人', '２人[ふたり]'),
-        ('五〇歳', '五〇[ごれい] 歳[さい]'),
         ('ここ一ヶ月', 'ここ 一[いち] ヶ月[かげつ]'), # we would prefer いっかげつ of course..
         ('鏡は無ぇみてぇだなァ', '鏡[かがみ]は 無ぇ[ねえ]みてぇだなァ'),
         ('或は', '或[あるい]は'),
         ('小ぢんまり', '小[こ]ぢんまり'),
+
+        # number-related stuff
+        ('１つ', '１つ'), # we don't do furigana over just Arabic numerals
+        ('２人', '２人[ふたり]'),
+        ('五〇歳', '五〇[ごれい] 歳[さい]'),
+        ('204号室のスミスの部屋。', '204 号室[ごうしつ]のスミスの 部屋[へや]。'),
 
         # the following failed with the old algorithm based on diff_match_patch
         ('言い聞かせる', '言[い]い 聞[き]かせる'),
