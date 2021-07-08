@@ -22,7 +22,7 @@ To avoid hardcoding server IPs in these files, I've added entries to my local `/
 
 ### Deploy backend/batch code
 
-This is a hacky script to deploy the backend code from local `HEAD`. It also creates/updates the server virtualenv.
+This is a hacky script to deploy the repo from local `HEAD`. It also creates/updates the server virtualenv.
 
 `./deploy-backend.sh <hostname>`
 
@@ -34,7 +34,7 @@ Example:
 $ cd /opt/massif
 $ . backend-env/bin/activate
 (copy-paste AWS secret/config exports from local file)
-$ time python backend/indexing/index_docs.py ja
+$ time python latest/backend/indexing/index_docs.py ja
 ```
 
 ### Manually restart Elasticsearch

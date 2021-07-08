@@ -6,7 +6,7 @@ from flask import Flask, request, render_template, redirect, url_for, escape, se
 from flask_cors import CORS
 import requests
 
-from analysis import ja_get_text_morphemes, ja_get_morphemes_normal_counts, ja_get_morphemes_reading
+from common.ja import ja_get_text_morphemes, ja_get_morphemes_normal_counts, ja_get_morphemes_reading
 
 app = Flask(__name__)
 
