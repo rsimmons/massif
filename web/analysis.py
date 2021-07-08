@@ -22,13 +22,36 @@ def char_could_have_reading(c):
 # def has_any_katakana(c):
 #     return bool(KATAKANA_RE.search(s))
 
-def ignore_morpheme(m):
+REPEATED_CHAR_RE = re.compile(r'(.)\1{3,}') # 4 or more of same char in a row
+JA_REPETITIVE_MORPHEME_RUN = 3
+def ja_is_repetitive(text, morphemes):
+    if REPEATED_CHAR_RE.search(text):
+        return True
+
+    # check for too many repeated morphemes in a row
+    run = 0
+    prev = None
+    for m in morphemes:
+        if m.part_of_speech()[0] in ('補助記号', '空白'):
+            continue # handle these only by character repeats
+        field = m.surface()
+        if field == prev:
+            run += 1
+            if run >= (JA_REPETITIVE_MORPHEME_RUN - 1):
+                return True
+        else:
+            run = 0
+        prev = field
+
+    return False
+
+def ja_ignore_morpheme(m):
     return m.part_of_speech() in ['補助記号', '空白']
 
 def ja_get_morphemes_normal_counts(morphemes):
     result = Counter()
     for m in morphemes:
-        if not ignore_morpheme(m):
+        if not ja_ignore_morpheme(m):
             result[m.normalized_form()] += 1
     return result
 
@@ -171,8 +194,32 @@ if __name__ == '__main__':
         ('日本', '日本[にほん]'),
         ('これは私のです', 'これは 私[わたし]のです'),
     ]
+    print('TESTING READINGS')
     for frag, target_reading in TEST_READING_FRAGMENTS:
-        print('testing', repr(frag))
-        normals_set, reading = ja_get_text_normals_and_reading(frag)
+        print(repr(frag))
+        morphemes = ja_get_text_morphemes(frag)
+        reading = ja_get_morphemes_reading(morphemes)
         assert reading == target_reading, (repr(reading) + ' vs ' + repr(target_reading))
+    print()
+
+    TEST_REPETITIVE_FRAGMENTS = [
+        ('ああいうのは', False),
+        ('あばばばばばばばばっ！', True),
+        ('まさか…………ヒイロ！', True),
+        ('まさか………ヒイロ！', False),
+        ('しゃああああ！', True),
+        ('しゃあああ！', False),
+        ('おいおいおい', True),
+        ('おいおい', False),
+        ('長い長い時間がかかった。', False),
+        ('長い長い長い時間がかかった。', True),
+    ]
+    print('TESTING REPETITIVE')
+    for frag, target_repetitive in TEST_REPETITIVE_FRAGMENTS:
+        print(repr(frag))
+        morphemes = ja_get_text_morphemes(frag)
+        repetitive = ja_is_repetitive(frag, morphemes)
+        assert repetitive == target_repetitive, (repr(repetitive) + ' vs ' + repr(target_repetitive))
+    print()
+
     print('ALL GOOD')
