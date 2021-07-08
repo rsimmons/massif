@@ -107,13 +107,20 @@ def ja_match_furigana(kanji_text, kana_text, not_start):
     # We occasionally don't match in weird cases, but that's OK
     return kanji_text
 
+ADJUSTED_READINGS = {
+    '日本': (['名詞', '固有名詞', '地名', '国', '*', '*'], '日本[にほん]'),
+    '私': (['代名詞', '*', '*', '*', '*', '*'], '私[わたし]'),
+}
+
 def ja_get_morphemes_reading(morphemes):
     result_pieces = []
 
     for m in morphemes:
         pos = m.part_of_speech()
         surface = m.surface()
-        if (not m.reading_form()) or (not (has_any_kanji(surface) or has_any_numerals(surface))):
+        if (surface in ADJUSTED_READINGS) and all(x == y for (x, y) in zip(pos, ADJUSTED_READINGS[surface][0])):
+            result_pieces.append((' ' if result_pieces else '') + ADJUSTED_READINGS[surface][1])
+        elif (not m.reading_form()) or (not (has_any_kanji(surface) or has_any_numerals(surface))):
             # If there isn't any reading form (for stuff like 'foo')
             # or there aren't any kanji or numerals,
             # then just copy the surface form.
@@ -169,6 +176,10 @@ if __name__ == '__main__':
         ('どうやら相当の思い入れがあったらしい。', 'どうやら 相当[そうとう]の 思[おも]い 入[い]れがあったらしい。'),
         ('何か喋っているようだが内容までは聞き取れない。', '何[なん]か 喋[しゃべ]っているようだが 内容[ないよう]までは 聞[き]き 取[と]れない。'),
         # ('差し出がましい', '差[さ]し出[で]がましい'), # Sudachi currently gets this wrong, not our fault
+
+        # these readings we have special cased because they will be so counterintuitive for learners,
+        ('日本', '日本[にほん]'),
+        ('これは私のです', 'これは 私[わたし]のです'),
     ]
     for frag, target_reading in TEST_READING_FRAGMENTS:
         print('testing', repr(frag))
