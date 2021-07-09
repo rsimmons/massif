@@ -11,7 +11,7 @@ import requests
 from . import fragdb
 
 from ..util.count_chars import count_meaty_chars
-from ..common.ja import ja_get_text_morphemes, ja_get_morphemes_normal_stats, ja_get_morphemes_reading
+from ..common.ja import ja_get_text_morphemes, ja_get_morphemes_normal_stats, ja_get_morphemes_reading, ja_is_repetitive
 
 INDEX_BATCH_SIZE = 1024
 MAX_HITS_PER_TAG_SET = 4
@@ -132,6 +132,9 @@ if __name__ == '__main__':
         text = row['text']
 
         morphemes = ja_get_text_morphemes(text)
+
+        if ja_is_repetitive(text, morphemes):
+            continue # skip this fragment
 
         normal_stats = ja_get_morphemes_normal_stats(morphemes)
         for normal, stats in normal_stats.items():
