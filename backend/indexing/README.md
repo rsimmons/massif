@@ -58,7 +58,7 @@ curl -X PUT "localhost:9200/fragment_ja_20210708?pretty" -H 'Content-Type: appli
   }
 }'
 
-curl -X PUT "localhost:9200/source_ja_syosetu_20210708?pretty" -H 'Content-Type: application/json' -d'
+curl -X PUT "localhost:9200/source_ja_20210708?pretty" -H 'Content-Type: application/json' -d'
 {
   "mappings": {
     "dynamic": "strict",
