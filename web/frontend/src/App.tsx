@@ -1,8 +1,26 @@
-import React, {useEffect, useReducer} from 'react';
-import {reducer, INITIAL_STATE} from './State';
+import React, {useEffect, useReducer, Fragment, ReactNode} from 'react';
+import {reducer, INITIAL_STATE, SavingFragmentState} from './State';
 import './App.css';
 
-function App() {
+const SavingFragmentForm: React.FC<{frag: SavingFragmentState, onUpdate(frag: SavingFragmentState): void, onSave(): void, onCancel(): void}> = ({frag, onUpdate, onSave, onCancel}) => {
+  return (
+    <p style={{background: '#ddd'}}>
+      Saving fragment:<br/>
+      <input type="text" value={frag.text} size={100} onInput={(e) => { onUpdate({...frag, text: e.currentTarget.value}); }} /><br/>
+      <input type="text" value={frag.reading} size={100} onInput={(e) => { onUpdate({...frag, reading: e.currentTarget.value}); }} /><br/>
+      <textarea value={frag.notes} rows={10} cols={100} onInput={(e) => { onUpdate({...frag, notes: e.currentTarget.value}); }} /><br/>
+      <button onClick={onSave}>Save</button> <button onClick={onCancel}>Cancel</button>
+    </p>
+  );
+}
+
+function newline2br(text: string): ReactNode {
+  return text.split('\n').map((item, idx) => {
+    return <Fragment key={idx}>{item}<br/></Fragment>
+  });
+}
+
+const App: React.FC = () => {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
 
   useEffect(() => {
@@ -113,10 +131,24 @@ function App() {
       <p><input type="file" id="known-text-file" onChange={handleKnownTextFileChange} /></p>
       <p>Known count: {state.knownNormals.size}</p>
       <p>Suggested normal: {state.suggestedNormal} {(state.suggestedNormal !== null) && <button onClick={handleKnowSuggestedNormalClick}>I know this</button>}</p>
+      {state.savingFragment &&
+        <SavingFragmentForm
+          frag={state.savingFragment}
+          onUpdate={(frag) => { dispatch({tag: 'update_saving_fragment', fragment: frag}); }}
+          onSave={() => { dispatch({tag: 'finish_saving_fragment'}); }}
+          onCancel={() => {}}
+        />
+      }
       <div>
         <p>Suggested fragments:</p>
         <ul>{(typeof(state.suggestedFragments) === 'object') && state.suggestedFragments?.map((frag, idx) => {
-          return <li key={idx}>{frag.text}<br/>{frag.reading}</li>;
+          return <li key={idx}>{frag.text} <button onClick={() => { dispatch({tag: 'begin_saving_fragment', fragment: frag}); }}>+</button><br/>{frag.reading}</li>;
+        })}</ul>
+      </div>
+      <div>
+        <p>Saved fragments:</p>
+        <ul>{state.savedFragments.map((frag) => {
+          return <li key={frag.text}>{frag.text}<br/>{frag.reading}<br/>{newline2br(frag.notes)}</li>
         })}</ul>
       </div>
       <p>{state.statusLog.map((entry, idx) => (<React.Fragment key={idx}>{entry}<br/></React.Fragment>))}</p>

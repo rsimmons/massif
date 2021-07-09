@@ -6,11 +6,22 @@ export interface SuggestedFragment {
   readonly normals: ReadonlyArray<string>; // should be unique tho
 }
 
+export interface SavedFragment {
+  readonly text: string;
+  readonly reading: string;
+  readonly notes: string;
+}
+
+export type SavingFragmentState = SavedFragment; // for now the same, could have more state later
+
 export interface State {
-  readonly statusLog: ReadonlyArray<string>;
   readonly knownNormals: ReadonlySet<string>;
+  readonly savedFragments: ReadonlyArray<SavedFragment>;
+
+  readonly statusLog: ReadonlyArray<string>;
   readonly suggestedNormal: string | null;
   readonly suggestedFragments: ReadonlyArray<SuggestedFragment> | null | 'fetching'; // hacky union
+  readonly savingFragment: SavingFragmentState | null; // if not null, the state of the pre-save form we're showing
 }
 
 export interface LogStatusAction {
@@ -28,7 +39,21 @@ export interface SetSuggestedFragmentsAction {
   readonly fragments: ReadonlyArray<SuggestedFragment> | 'fetching';
 }
 
-type Action = LogStatusAction | AddKnownNormalsAction | SetSuggestedFragmentsAction;
+export interface BeginSavingFragmentAction {
+  readonly tag: 'begin_saving_fragment';
+  readonly fragment: SuggestedFragment;
+}
+
+export interface UpdateSavingFragmentAction {
+  readonly tag: 'update_saving_fragment';
+  readonly fragment: SavingFragmentState;
+}
+
+export interface FinishSavingFragmentAction {
+  readonly tag: 'finish_saving_fragment';
+}
+
+type Action = LogStatusAction | AddKnownNormalsAction | SetSuggestedFragmentsAction | BeginSavingFragmentAction | UpdateSavingFragmentAction | FinishSavingFragmentAction;
 
 function findNextSuggestedNormal(knownNormals: ReadonlySet<string>): string | null {
   for (const n of FREQ_LIST) {
@@ -67,12 +92,45 @@ export function reducer(s: State, a: Action): State {
         suggestedFragments: a.fragments,
       };
     }
+
+    case 'begin_saving_fragment': {
+      const sugFrag = a.fragment;
+      return {
+        ...s,
+        savingFragment: {
+          text: sugFrag.text,
+          reading: sugFrag.reading,
+          notes: '',
+        },
+      };
+    }
+
+    case 'update_saving_fragment': {
+      return {
+        ...s,
+        savingFragment: a.fragment,
+      };
+    }
+
+    case 'finish_saving_fragment': {
+      if (!s.savingFragment) {
+        throw new Error('should be unreachable');
+      }
+      return {
+        ...s,
+        savedFragments: s.savedFragments.concat([s.savingFragment]),
+        savingFragment: null,
+      };
+    }
   }
 }
 
 export const INITIAL_STATE: State = {
-  statusLog: [],
   knownNormals: new Set(),
+  savedFragments: [],
+
+  statusLog: [],
   suggestedNormal: null,
   suggestedFragments: null,
+  savingFragment: null,
 };
