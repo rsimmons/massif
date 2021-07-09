@@ -6,7 +6,7 @@ from flask import Flask, request, render_template, redirect, url_for, escape, se
 from flask_cors import CORS
 import requests
 
-from common.ja import ja_get_text_morphemes, ja_get_morphemes_normal_stats, ja_get_morphemes_reading
+from common.ja import ja_get_text_morphemes, ja_get_morphemes_normal_stats
 
 app = Flask(__name__)
 
@@ -232,12 +232,7 @@ def api_get_normal_fragments():
     t0 = time.time()
     main_resp = requests.get(f'{ES_BASE_URL}/{FRAGMENT_INDEX}/_search', json={
         'query': {
-            # NOTE: The normal will still get run through the analyzer. I hope that this is a no-op,
-            # otherwise this won't work quite right.
-            # I think we could use a different query to make it skip analysis, but I'm not sure
-            # that our normalization will exactly match the normalization done by ES, so this seems
-            # slightly safer to me.
-            'match_phrase': {'text': normal},
+            'match_phrase': {'normals': normal},
         },
         'sort': [
             {'mscore': 'desc'},
@@ -252,14 +247,10 @@ def api_get_normal_fragments():
     main_resp_body = main_resp.json()
     fragments = []
     for hit in main_resp_body['hits']['hits']:
-        text = hit['_source']['text']
-        morphemes = ja_get_text_morphemes(text)
-        normals = list(ja_get_morphemes_normal_stats(morphemes).keys())
-        reading = ja_get_morphemes_reading(morphemes)
         fragments.append({
-            'text': text,
-            'normals': normals,
-            'reading': reading,
+            'text': hit['_source']['text'],
+            'normals': hit['_source']['normals'],
+            'reading': hit['_source']['reading'],
         })
 
     return jsonify(fragments)
