@@ -2,7 +2,7 @@
 
 Current Elasticsearch index creation:
 ```
-curl -X PUT "localhost:9200/fragment_ja_20210702?pretty" -H 'Content-Type: application/json' -d'
+curl -X PUT "localhost:9200/fragment_ja_20210708?pretty" -H 'Content-Type: application/json' -d'
 {
   "settings": {
     "index": {
@@ -37,6 +37,13 @@ curl -X PUT "localhost:9200/fragment_ja_20210702?pretty" -H 'Content-Type: appli
           }
         }
       },
+      "normals": {
+        "type": "keyword"
+      },
+      "reading": {
+        "type": "object",
+        "enabled": false
+      },
       "mscore": {
         "type": "float"
       },
@@ -51,7 +58,7 @@ curl -X PUT "localhost:9200/fragment_ja_20210702?pretty" -H 'Content-Type: appli
   }
 }'
 
-curl -X PUT "localhost:9200/source_ja_syosetu_20210613?pretty" -H 'Content-Type: application/json' -d'
+curl -X PUT "localhost:9200/source_ja_syosetu_20210708?pretty" -H 'Content-Type: application/json' -d'
 {
   "mappings": {
     "dynamic": "strict",
@@ -84,13 +91,13 @@ curl -X POST "localhost:9200/_aliases?pretty" -H 'Content-Type: application/json
     { "remove" : { "index" : "*", "alias" : "source_ja" } },
     { "add" : {
       "indices" : [
-        "fragment_ja_20210702"
+        "fragment_ja_20210708"
       ],
       "alias" : "fragment_ja"
     } },
     { "add" : {
       "indices" : [
-        "source_ja_syosetu_20210613"
+        "source_ja_20210708"
       ],
       "alias" : "source_ja"
     } }

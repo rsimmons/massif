@@ -52,11 +52,21 @@ def ja_is_repetitive(text, morphemes):
 def ja_ignore_morpheme(m):
     return m.part_of_speech()[0] in ['補助記号', '空白']
 
-def ja_get_morphemes_normal_counts(morphemes):
-    result = Counter()
+def ja_get_morphemes_normal_stats(morphemes):
+    result = {}
+
     for m in morphemes:
         if not ja_ignore_morpheme(m):
-            result[m.normalized_form()] += 1
+            normal = m.normalized_form()
+            result.setdefault(normal, {
+                'c': 0,
+                'sc': Counter(), # sub-counts by surface forms
+                'dc': Counter(), # sub-counts by dictionary forms
+            })
+            result[normal]['c'] += 1
+            result[normal]['sc'][m.surface()] += 1
+            result[normal]['dc'][m.dictionary_form()] += 1
+
     return result
 
 # returns text with furigana in "Anki format", readings converted to hiragana

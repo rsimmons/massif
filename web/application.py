@@ -6,7 +6,7 @@ from flask import Flask, request, render_template, redirect, url_for, escape, se
 from flask_cors import CORS
 import requests
 
-from common.ja import ja_get_text_morphemes, ja_get_morphemes_normal_counts, ja_get_morphemes_reading
+from common.ja import ja_get_text_morphemes, ja_get_morphemes_normal_stats, ja_get_morphemes_reading
 
 app = Flask(__name__)
 
@@ -217,7 +217,11 @@ def api_get_text_normals():
     req = request.get_json()
     text = req['text']
     morphemes = ja_get_text_morphemes(text)
-    normal_counts = ja_get_morphemes_normal_counts(morphemes)
+
+    normal_counts = {}
+    for (k, v) in ja_get_morphemes_normal_stats(morphemes).items():
+        normal_counts[k] = v['c']
+
     return jsonify(normal_counts)
 
 @app.route("/api/get_normal_fragments", methods=['POST'])
@@ -250,11 +254,11 @@ def api_get_normal_fragments():
     for hit in main_resp_body['hits']['hits']:
         text = hit['_source']['text']
         morphemes = ja_get_text_morphemes(text)
-        normal_counts = ja_get_morphemes_normal_counts(morphemes)
+        normals = list(ja_get_morphemes_normal_stats(morphemes).keys())
         reading = ja_get_morphemes_reading(morphemes)
         fragments.append({
             'text': text,
-            'normals': list(normal_counts.keys()),
+            'normals': normals,
             'reading': reading,
         })
 
