@@ -1,5 +1,6 @@
 import argparse
 import time
+import json
 
 import sqlite3
 import requests
@@ -79,13 +80,24 @@ class Wayback:
 
             time.sleep(CRAWL_PAUSE)
 
+    def parse_file(self, fn, url):
+        return self.parse_string(open(fn).read(), url)
+
     def run_main(self):
         parser = argparse.ArgumentParser()
-        parser.add_argument('sqlite_db')
+        parser.add_argument('--sqlite-db')
+        parser.add_argument('--parse-url')
+        parser.add_argument('--parse-fn')
+        parser.add_argument('command')
         args = parser.parse_args()
 
-        db_open(args.sqlite_db)
-
-        self.crawl_seeds()
-
-        db_close()
+        if args.command == 'crawl_seeds':
+            assert args.sqlite_db
+            db_open(args.sqlite_db)
+            self.crawl_seeds()
+        elif args.command == 'parse_file':
+            assert args.parse_fn
+            assert args.parse_url
+            print(json.dumps(self.parse_file(args.parse_fn, args.parse_url), ensure_ascii=False, sort_keys=True, indent=2))
+        else:
+            assert False, 'unrecognized command'
