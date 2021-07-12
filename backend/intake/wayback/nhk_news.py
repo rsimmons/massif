@@ -122,11 +122,12 @@ class NHKNews(Wayback):
                 text_sections.append(news_textmore_text)
 
         return {
-            'page_title': page_title,
+            'url': url,
+            'title': page_title,
             'keywords': keywords_list,
             'headline': headline,
             'datetime': dt,
-            'text_sections': text_sections,
+            'sections': text_sections,
         }
 
 if __name__ == '__main__':

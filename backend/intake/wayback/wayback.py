@@ -5,21 +5,20 @@ import json
 import sqlite3
 import requests
 
-CRAWL_PAUSE = 10
+LONG_CRAWL_PAUSE = 10
+CRAWL_PAUSE = 2
+MASSIFBOT_UA = 'Massifbot (+http://www.massif.com/)'
 
 '''
 CREATE TABLE crawl_url (
-  url TEXT NOT NULL UNIQUE,
+  url TEXT PRIMARY KEY NOT NULL,
   timestamp TEXT NOT NULL
 );
 
-CREATE TABLE source (
-  key TEXT NOT NULL UNIQUE,
-  url TEXT,
-  title TEXT,
-  pubdate TEXT,
-  ctype TEXT,
-  content TEXT
+CREATE TABLE crawl_result (
+  url TEXT PRIMARY KEY NOT NULL,
+  timestamp TEXT NOT NULL,
+  data TEXT NOT NULL
 );
 '''
 
@@ -45,6 +44,20 @@ def insert_crawl_urls(crawl_urls):
 
     cur.execute('COMMIT')
 
+def iter_uncrawled_urls():
+    cur = cxn.cursor()
+    for row in cur.execute('SELECT url, timestamp FROM crawl_url WHERE NOT EXISTS (SELECT url FROM crawl_result WHERE crawl_result.url = crawl_url.url)'):
+        yield {
+            'url': row[0],
+            'timestamp': row[1],
+        }
+
+def insert_crawl_result(url, timestamp, data):
+    cur = cxn.cursor()
+    cur.execute('BEGIN')
+    cur.execute('INSERT INTO crawl_result (url, timestamp, data) VALUES (?, ?, ?)', (url, timestamp, data))
+    cur.execute('COMMIT')
+
 class Wayback:
     def __init__(self):
         pass
@@ -60,7 +73,7 @@ class Wayback:
                 'filter': ['statuscode:200', 'mimetype:text/html'],
                 'limit': '100000',
             }
-            r = requests.get('https://web.archive.org/web/timemap/', params=params)
+            r = requests.get('https://web.archive.org/web/timemap/', params=params, headers={'User-Agent': MASSIFBOT_UA})
             r.raise_for_status()
 
             result_rows = r.json()
@@ -78,10 +91,26 @@ class Wayback:
             print(f'Filtered to {len(good_urls)} urls')
             insert_crawl_urls(good_urls)
 
-            time.sleep(CRAWL_PAUSE)
+            time.sleep(LONG_CRAWL_PAUSE)
 
     def parse_file(self, fn, url):
         return self.parse_string(open(fn).read(), url)
+
+    def crawl(self):
+        for info in iter_uncrawled_urls():
+            r = requests.get(f'https://web.archive.org/web/{info["timestamp"]}/{info["url"]}', headers={'User-Agent': MASSIFBOT_UA})
+            r.raise_for_status()
+            # print(r.text)
+
+            parse_result = self.parse_string(r.text, info['url'])
+            json_text = json.dumps(parse_result, ensure_ascii=False, indent=2)
+            # print(json_text)
+
+            insert_crawl_result(info['url'], info['timestamp'], json_text)
+
+            print('CRAWLED', info['timestamp'], info['url'])
+
+            time.sleep(CRAWL_PAUSE)
 
     def run_main(self):
         parser = argparse.ArgumentParser()
@@ -98,6 +127,10 @@ class Wayback:
         elif args.command == 'parse_file':
             assert args.parse_fn
             assert args.parse_url
-            print(json.dumps(self.parse_file(args.parse_fn, args.parse_url), ensure_ascii=False, sort_keys=True, indent=2))
+            print(json.dumps(self.parse_file(args.parse_fn, args.parse_url), ensure_ascii=False, indent=2))
+        elif args.command == 'crawl':
+            assert args.sqlite_db
+            db_open(args.sqlite_db)
+            self.crawl()
         else:
             assert False, 'unrecognized command'
