@@ -1,3 +1,4 @@
+import sys
 import argparse
 import time
 import json
@@ -7,6 +8,10 @@ import requests
 
 LONG_CRAWL_PAUSE = 10
 CRAWL_PAUSE = 2
+
+CRAWL_RETRIES = 3
+RETRY_PAUSE = 10
+
 MASSIFBOT_UA = 'Massifbot (+http://www.massif.com/)'
 
 '''
@@ -98,11 +103,24 @@ class Wayback:
 
     def crawl(self):
         for info in iter_uncrawled_urls():
-            r = requests.get(f'https://web.archive.org/web/{info["timestamp"]}/{info["url"]}', headers={'User-Agent': MASSIFBOT_UA})
-            r.raise_for_status()
+            for retry in range(CRAWL_RETRIES):
+                try:
+                    r = requests.get(f'https://web.archive.org/web/{info["timestamp"]}/{info["url"]}', headers={'User-Agent': MASSIFBOT_UA})
+                    r.raise_for_status()
+                    break
+                except:
+                    print('REQUEST ERROR', sys.exc_info()[0])
+                    time.sleep(RETRY_PAUSE)
+
             # print(r.text)
 
-            parse_result = self.parse_string(r.text, info['url'])
+            try:
+                parse_result = self.parse_string(r.text, info['url'])
+            except:
+                print('ERROR parsing url', info['url'])
+                print('TEXT:')
+                print(r.text)
+                raise
             json_text = json.dumps(parse_result, ensure_ascii=False, indent=2)
             # print(json_text)
 
