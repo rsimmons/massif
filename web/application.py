@@ -21,6 +21,9 @@ application = app
 # Not necessary to keep ASCII, and impedes debugging Japanese
 app.config['JSON_AS_ASCII'] = False
 
+# It's nice to have this pretty printed even if it takes a few more bytes to transfer
+app.config['JSONIFY_PRETTYPRINT_REGULAR'] = True
+
 ES_HOST = os.getenv('ES_HOST', 'localhost')
 ES_BASE_URL = f'http://{ES_HOST}:9200'
 
