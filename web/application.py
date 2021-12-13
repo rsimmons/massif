@@ -71,7 +71,7 @@ def ja_fsearch():
     query = request.args.get('q', '')
     response_format = request.args.get('fmt', 'html')
 
-    print('query\t' + json.dumps({'query': query, 'format': response_format}, sort_keys=True, ensure_ascii=True), flush=True)
+    print('query', json.dumps({'query': query, 'format': response_format}, sort_keys=True, ensure_ascii=True), flush=True)
 
     # PARSE QUERY
     phrases = query.split()
@@ -121,7 +121,7 @@ def ja_fsearch():
     })
     dt = time.time() - t0
     main_resp.raise_for_status()
-    print(f'es_request_time\t{dt}', flush=True)
+    print('es_request_time', f'{dt}', flush=True)
 
     # FORMAT RESULT COUNT
     main_resp_body = main_resp.json()
@@ -272,7 +272,7 @@ def api_get_normal_fragments():
     })
     dt = time.time() - t0
     main_resp.raise_for_status()
-    print(f'ES fragments request took {dt}s')
+    print('es_request_time', f'{dt}', flush=True)
 
     main_resp_body = main_resp.json()
     fragments = []
