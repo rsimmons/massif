@@ -65,6 +65,7 @@ def format_time(t):
 @app.route('/ja/search')
 def ja_fsearch():
     query = request.args.get('q', '')
+    response_format = request.args.get('fmt', 'html')
 
     # PARSE QUERY
     phrases = query.split()
@@ -75,6 +76,7 @@ def ja_fsearch():
 
     # SEARCH FRAGMENTS
     results = {}
+    json_response = {}
 
     subqueries = []
     exact_phrases = []
@@ -120,11 +122,14 @@ def ja_fsearch():
     main_resp_body = main_resp.json()
     hitcount_value = main_resp_body['hits']['total']['value']
 
-    hitcount_value = main_resp_body['hits']['total']['value']
+    json_response['hits'] = hitcount_value
+
     if main_resp_body['hits']['total']['relation'] == 'eq':
         hitcount_qual = ''
+        json_response['hits_limited'] = False
     elif main_resp_body['hits']['total']['relation'] == 'gte':
         hitcount_qual = '>'
+        json_response['hits_limited'] = True
     else:
         assert False
     hitcount_str = hitcount_qual + str(hitcount_value)
@@ -162,9 +167,11 @@ def ja_fsearch():
 
     # PREPARE RESULT LIST FOR TEMPLATE
     results_list = []
+    json_results_list = []
     assert len(main_resp_body['hits']['hits']) == len(source_infos) # sanity check
     for (hit, source_info) in zip(main_resp_body['hits']['hits'], source_infos):
         xhit = {}
+        json_xhit = {}
 
         # If we only have exact phrase matches, then there won't be a highlighted version, so we just
         # escape the raw text and use that.
@@ -175,13 +182,24 @@ def ja_fsearch():
             hit_html = hit_html.replace(exact_phrase, '<em>' + exact_phrase + '</em>')
         xhit['markup'] = str(hit_html)
 
+        json_xhit['text'] = hit['_source']['text']
+        json_xhit['highlighted_html'] = str(hit_html)
+
         source_record = source_map[str(source_info['source_id'])]
+        json_xhit['sample_source'] = {}
+
         xhit['title'] = source_record['title']
+        json_xhit['sample_source']['title'] = source_record['title']
         if 'published' in source_record:
             xhit['published'] = source_record['published']
+            json_xhit['sample_source']['publish_date'] = source_record['published']
         if 'url' in source_record:
             xhit['url'] = source_record['url']
+            json_xhit['sample_source']['url'] = source_record['url']
         xhit['other_count'] = source_info['total_hits'] - 1
+
+        json_xhit['source_count'] = source_info['total_hits']
+
         # Uncomment this to add back in tags display
         # source_tags = source_record['tags']
         # xhit['tags'] = []
@@ -190,10 +208,17 @@ def ja_fsearch():
         #         xhit['tags'].append(trans)
 
         results_list.append(xhit)
+        json_results_list.append(json_xhit)
 
     results['list'] = results_list
+    json_response['results'] = json_results_list
 
-    return render_template('index.html', query=query, results=results)
+    if response_format == 'html':
+        return render_template('index.html', query=query, results=results)
+    elif response_format == 'json':
+        return jsonify(json_response)
+    else:
+        assert False
 
 
 PATHFINDER_BUILD_DIR = 'frontend/build'
