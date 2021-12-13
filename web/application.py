@@ -1,6 +1,7 @@
 import os
 import time
 import random
+import json
 
 from flask import Flask, request, render_template, redirect, url_for, escape, send_from_directory, abort, jsonify
 from flask_cors import CORS
@@ -67,9 +68,10 @@ def ja_fsearch():
     query = request.args.get('q', '')
     response_format = request.args.get('fmt', 'html')
 
+    print('query\t' + json.dumps({'query': query, 'format': response_format}, sort_keys=True, ensure_ascii=True), flush=True)
+
     # PARSE QUERY
     phrases = query.split()
-    print('query phrases are', phrases)
     if not phrases:
         return redirect(url_for('ja'))
 
@@ -116,7 +118,7 @@ def ja_fsearch():
     })
     dt = time.time() - t0
     main_resp.raise_for_status()
-    print(f'ES fragments request took {dt}s')
+    print(f'es_request_time\t{dt}', flush=True)
 
     # FORMAT RESULT COUNT
     main_resp_body = main_resp.json()
