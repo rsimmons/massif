@@ -221,7 +221,9 @@ def ja_fsearch():
     if response_format == 'html':
         return render_template('index.html', query=query, results=results)
     elif response_format == 'json':
-        return jsonify(json_response)
+        response = jsonify(json_response)
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response
     else:
         assert False
 
