@@ -232,9 +232,6 @@ PATHFINDER_BUILD_DIR = 'frontend/build'
 
 @app.route('/ja/pathfinder')
 def ja_pathfinder_root():
-    if app.env != 'development':
-        abort(404)
-
     # NOTE: Instead of doing this:
     # send_from_directory(PATHFINDER_BUILD_DIR, 'index.html')
     # we render this template, which is actually a symlink to frontend/build/index.html,
@@ -245,9 +242,6 @@ def ja_pathfinder_root():
 
 @app.route("/ja/pathfinder/<path:name>")
 def ja_pathfinder_sub(name):
-    if app.env != 'development':
-        abort(404)
-
     return send_from_directory(PATHFINDER_BUILD_DIR, name)
 
 @app.route("/api/get_text_normal_counts", methods=['POST'])
