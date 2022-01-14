@@ -235,7 +235,13 @@ def ja_pathfinder_root():
     if app.env != 'development':
         abort(404)
 
-    return send_from_directory(PATHFINDER_BUILD_DIR, 'index.html')
+    # NOTE: Instead of doing this:
+    # send_from_directory(PATHFINDER_BUILD_DIR, 'index.html')
+    # we render this template, which is actually a symlink to frontend/build/index.html,
+    # so that we don't have to deal with having two template directories.
+    # This could be an issue if there was accidentally anything that looked like a template
+    # substitution in the frontend code, but it works for now.
+    return render_template('frontend_index.html')
 
 @app.route("/ja/pathfinder/<path:name>")
 def ja_pathfinder_sub(name):
@@ -258,6 +264,7 @@ def api_get_text_normals():
 
 @app.route("/api/get_normal_fragments", methods=['POST'])
 def api_get_normal_fragments():
+    print(request.host_url)
     req = request.get_json()
     normal = req['normal']
 

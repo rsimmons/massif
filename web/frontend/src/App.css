@@ -1,0 +1,7 @@
+.App-columns {
+  display: flex;
+}
+
+.App-columns > * {
+  padding: 0 1em;
+}

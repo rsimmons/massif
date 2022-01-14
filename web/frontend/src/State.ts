@@ -1,4 +1,5 @@
 import FREQ_LIST from './freqlist';
+import { loadProfile, saveProfile } from './storage';
 
 export interface SuggestedFragment {
   readonly text: string;
@@ -7,6 +8,7 @@ export interface SuggestedFragment {
 }
 
 export interface SavedFragment {
+  readonly uid: string;
   readonly text: string;
   readonly reading: string;
   readonly notes: string;
@@ -14,7 +16,9 @@ export interface SavedFragment {
 
 export type SavingFragmentState = SavedFragment; // for now the same, could have more state later
 
+// invariant: If suggestedFragments are set (an array), then they match suggestedNormal
 export interface State {
+  readonly loading: boolean;
   readonly knownNormals: ReadonlySet<string>;
   readonly savedFragments: ReadonlyArray<SavedFragment>;
 
@@ -24,9 +28,8 @@ export interface State {
   readonly savingFragment: SavingFragmentState | null; // if not null, the state of the pre-save form we're showing
 }
 
-export interface LogStatusAction {
-  readonly tag: 'log_status';
-  readonly status: string;
+export interface InitAction {
+  readonly tag: 'init';
 }
 
 export interface AddKnownNormalsAction {
@@ -53,7 +56,19 @@ export interface FinishSavingFragmentAction {
   readonly tag: 'finish_saving_fragment';
 }
 
-type Action = LogStatusAction | AddKnownNormalsAction | SetSuggestedFragmentsAction | BeginSavingFragmentAction | UpdateSavingFragmentAction | FinishSavingFragmentAction;
+export interface DeleteSavedFragment {
+  readonly tag: 'delete_saved_fragment';
+  readonly fragmentId: string;
+}
+
+type Action = InitAction | AddKnownNormalsAction | SetSuggestedFragmentsAction | BeginSavingFragmentAction | UpdateSavingFragmentAction | FinishSavingFragmentAction | DeleteSavedFragment;
+
+function genRandomStr32(): string {
+  return Math.random().toString(16).substring(2, 10);
+}
+function genRandomStr64(): string {
+  return genRandomStr32() + genRandomStr32();
+}
 
 function findNextSuggestedNormal(knownNormals: ReadonlySet<string>): string | null {
   for (const n of FREQ_LIST) {
@@ -65,25 +80,79 @@ function findNextSuggestedNormal(knownNormals: ReadonlySet<string>): string | nu
   return null;
 }
 
-export function reducer(s: State, a: Action): State {
+// Update suggestedNormal, and starts async update of suggestedFragments, based on rest of state.
+const updateSuggestions = (s: State, dispatch: (a: Action) => void): State => {
+  const newSuggestedNormal = findNextSuggestedNormal(s.knownNormals);
+  if (newSuggestedNormal === s.suggestedNormal) {
+    return s;
+  } else if (newSuggestedNormal === null) {
+    return {
+      ...s,
+      suggestedFragments: null,
+    };
+  } else {
+    (async () => {
+      const response = await fetch('http://localhost:5000/api/get_normal_fragments', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          normal: newSuggestedNormal,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(); // TODO: handle
+      }
+
+      const content = await response.json();
+
+      // NOTE: We don't validate that is has the right types
+
+      dispatch({tag: 'set_suggested_fragments', fragments: content});
+    })();
+
+    return {
+      ...s,
+      suggestedNormal: newSuggestedNormal,
+      suggestedFragments: 'fetching',
+    };
+  }
+};
+
+export function reducer(s: State, a: Action, dispatch: (a: Action) => void): State {
   switch (a.tag) {
-    case 'log_status': {
-      return {
+    case 'init': {
+      // Do initial load from storage
+      const profile = loadProfile();
+
+      const postLoadState: State = profile ? {
         ...s,
-        statusLog: s.statusLog.concat([a.status]),
+        loading: false,
+        knownNormals: new Set(profile.knownNormals),
+        savedFragments: profile.savedFragments,
+      } : {
+        ...s,
+        loading: false,
       };
+
+      return updateSuggestions(postLoadState, dispatch);
     }
 
     case 'add_known_normals': {
       const newKnownNormals = new Set([...s.knownNormals, ...a.normals]);
-      const newSuggestedNormal = findNextSuggestedNormal(newKnownNormals);
-      return {
+
+      saveProfile({
+        knownNormals: newKnownNormals,
+        savedFragments: s.savedFragments,
+      });
+
+      return updateSuggestions({
         ...s,
         knownNormals: newKnownNormals,
-        suggestedNormal: newSuggestedNormal,
-        // clear suggestedFragments if suggestedNormal changed
-        suggestedFragments: (newSuggestedNormal === s.suggestedNormal) ? s.suggestedFragments : null,
-      };
+      }, dispatch);
     }
 
     case 'set_suggested_fragments': {
@@ -98,6 +167,7 @@ export function reducer(s: State, a: Action): State {
       return {
         ...s,
         savingFragment: {
+          uid: genRandomStr64(),
           text: sugFrag.text,
           reading: sugFrag.reading,
           notes: '',
@@ -116,16 +186,39 @@ export function reducer(s: State, a: Action): State {
       if (!s.savingFragment) {
         throw new Error('should be unreachable');
       }
-      return {
+      const newSavedFragments = s.savedFragments.concat([s.savingFragment]);
+      const newState: State = {
         ...s,
-        savedFragments: s.savedFragments.concat([s.savingFragment]),
+        savedFragments: newSavedFragments,
         savingFragment: null,
       };
+
+      saveProfile({
+        knownNormals: newState.knownNormals,
+        savedFragments: newState.savedFragments,
+      });
+
+      return newState;
+    }
+
+    case 'delete_saved_fragment': {
+      const newState = {
+        ...s,
+        savedFragments: s.savedFragments.filter(frag => frag.uid !== a.fragmentId),
+      };
+
+      saveProfile({
+        knownNormals: newState.knownNormals,
+        savedFragments: newState.savedFragments,
+      });
+
+      return newState;
     }
   }
 }
 
 export const INITIAL_STATE: State = {
+  loading: true,
   knownNormals: new Set(),
   savedFragments: [],
 
