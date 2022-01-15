@@ -1,6 +1,9 @@
 import FREQ_LIST from './freqlist';
 import { loadProfile, saveProfile } from './storage';
 
+// Globals set by Flask in index.html
+declare const MASSIF_URL_API_GET_NORMAL_FRAGMENTS: string;
+
 export interface SuggestedFragment {
   readonly text: string;
   readonly reading: string;
@@ -92,7 +95,7 @@ const updateSuggestions = (s: State, dispatch: (a: Action) => void): State => {
     };
   } else {
     (async () => {
-      const response = await fetch('http://localhost:5000/api/get_normal_fragments', {
+      const response = await fetch('MASSIF_URL_API_GET_NORMAL_FRAGMENTS', {
         method: 'POST',
         headers: {
           'Accept': 'application/json',

@@ -3,8 +3,7 @@ import {reducer, INITIAL_STATE, SavingFragmentState} from './State';
 import './App.css';
 import { useEffectfulReducer } from './useEffectfulReducer';
 
-// These globals are set by Flask in index.html
-declare const MASSIF_URL_API_GET_NORMAL_FRAGMENTS: string;
+// Globals set by Flask in index.html
 declare const MASSIF_URL_API_GET_TEXT_NORMAL_COUNTS: string;
 
 const SavingFragmentForm: React.FC<{frag: SavingFragmentState, onUpdate(frag: SavingFragmentState): void, onSave(): void, onCancel(): void}> = ({frag, onUpdate, onSave, onCancel}) => {
@@ -54,36 +53,6 @@ const App: React.FC = () => {
   }, [])
 
   const savedFragmentTexts = useMemo(() => new Set(state.savedFragments.map(frag => frag.text)), [state.savedFragments])
-
-  useEffect(() => {
-    if (state.suggestedNormal && (state.suggestedFragments === null)) {
-      // need to fetch fragments for suggestedNormal
-      dispatch({tag: 'set_suggested_fragments', fragments: 'fetching'});
-
-      (async () => {
-        const response = await fetch(MASSIF_URL_API_GET_NORMAL_FRAGMENTS, {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            'normal': state.suggestedNormal,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(); // TODO: handle
-        }
-
-        const content = await response.json();
-
-        // NOTE: We don't validate that is has the right types
-
-        dispatch({tag: 'set_suggested_fragments', fragments: content});
-      })();
-    }
-  });
 
   const analyzeKnownText = (text: string): void => {
     const sentences: Array<string> = [];
