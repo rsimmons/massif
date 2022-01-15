@@ -95,7 +95,7 @@ const updateSuggestions = (s: State, dispatch: (a: Action) => void): State => {
     };
   } else {
     (async () => {
-      const response = await fetch('MASSIF_URL_API_GET_NORMAL_FRAGMENTS', {
+      const response = await fetch(MASSIF_URL_API_GET_NORMAL_FRAGMENTS, {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
