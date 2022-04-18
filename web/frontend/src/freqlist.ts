@@ -1167,7 +1167,6 @@ const FREQ_LIST_TEXT: string = `為る
 盛り上がる
 ほれ
 涙
-はははは
 映画
 日々
 証明
