@@ -2,6 +2,7 @@ import sys
 import argparse
 import time
 import json
+import urllib
 
 import sqlite3
 import requests
@@ -9,8 +10,8 @@ import requests
 LONG_CRAWL_PAUSE = 10
 CRAWL_PAUSE = 2
 
-CRAWL_RETRIES = 3
-RETRY_PAUSE = 10
+CRAWL_RETRIES = 6
+RETRY_PAUSE = 300
 
 MASSIFBOT_UA = 'Massifbot (+http://www.massif.com/)'
 
@@ -98,6 +99,58 @@ class Wayback:
 
             time.sleep(LONG_CRAWL_PAUSE)
 
+    def crawl_seeds_cdx(self):
+        for seed_prefix in self.get_seed_prefixes():
+            # Repeat batches, resuming each time
+            print(f'Crawling seed prefix (via CDX API) {seed_prefix!r}')
+            resume_key = None
+            while True:
+                params = {
+                    'url': seed_prefix,
+                    'matchType': 'prefix',
+                    'output': 'json',
+                    'fl': 'urlkey,timestamp,original',
+                    'filter': ['statuscode:200', 'mimetype:text/html'],
+                    'limit': '10000',
+                    'showResumeKey': 'true',
+                }
+                if resume_key is not None:
+                    params['resumeKey'] = resume_key
+
+                r = requests.get('https://web.archive.org/cdx/search/cdx', params=params, headers={'User-Agent': MASSIFBOT_UA})
+                r.raise_for_status()
+
+                raw_result_rows = r.json()
+                if (len(raw_result_rows) > 0) and (raw_result_rows[0][0] == 'urlkey'):
+                    # header row
+                    raw_result_rows = raw_result_rows[1:]
+                if (len(raw_result_rows) >= 2) and (len(raw_result_rows[-2]) == 0):
+                    # there is a resume key
+                    resume_key = urllib.parse.unquote(raw_result_rows[-1][0])
+                    result_rows = raw_result_rows[:-2]
+                else:
+                    resume_key = None
+                    result_rows = raw_result_rows
+
+                print(f'Got {len(result_rows)} result rows')
+
+                urlkey_last = {}
+                for (urlkey, timestamp, original) in result_rows:
+                    urlkey_last[urlkey] = (timestamp, original)
+
+                good_urls = []
+                for (urkley, (timestamp, original)) in urlkey_last.items():
+                    if self.include_url(original):
+                        good_urls.append((timestamp, original))
+
+                print(f'Filtered to {len(good_urls)} urls')
+                insert_crawl_urls(good_urls)
+
+                if resume_key is None:
+                    break
+
+                time.sleep(LONG_CRAWL_PAUSE)
+
     def parse_file(self, fn, url):
         return self.parse_string(open(fn).read(), url)
 
@@ -141,7 +194,7 @@ class Wayback:
         if args.command == 'crawl_seeds':
             assert args.sqlite_db
             db_open(args.sqlite_db)
-            self.crawl_seeds()
+            self.crawl_seeds_cdx()
         elif args.command == 'parse_file':
             assert args.parse_fn
             assert args.parse_url
