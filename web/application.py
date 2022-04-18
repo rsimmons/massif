@@ -227,18 +227,20 @@ def ja_fsearch():
     else:
         assert False
 
-
-PATHFINDER_BUILD_DIR = 'frontend/build'
+#
+# PATHFINDER
+#
+PATHFINDER_BUILD_DIR = 'pathfinder/build'
 
 @app.route('/ja/pathfinder')
 def ja_pathfinder_root():
     # NOTE: Instead of doing this:
     # send_from_directory(PATHFINDER_BUILD_DIR, 'index.html')
-    # we render this template, which is actually a symlink to frontend/build/index.html,
+    # we render this template, which is actually a symlink to pathfinder/build/index.html,
     # so that we don't have to deal with having two template directories.
     # This could be an issue if there was accidentally anything that looked like a template
     # substitution in the frontend code, but it works for now.
-    return render_template('frontend_index.html')
+    return render_template('pathfinder_index.html')
 
 @app.route("/ja/pathfinder/<path:name>")
 def ja_pathfinder_sub(name):
