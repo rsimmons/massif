@@ -244,6 +244,30 @@ def ja_pathfinder_root():
 def ja_pathfinder_sub(name):
     return send_from_directory(PATHFINDER_BUILD_DIR, name)
 
+#
+# TANKEN
+#
+TANKEN_BUILD_DIR = 'tanken/build'
+
+@app.route('/ja/tanken')
+def ja_tanken_root():
+    # NOTE: Instead of doing this:
+    # send_from_directory(TANKEN_BUILD_DIR, 'index.html')
+    # we render this template, which is actually a symlink to tanken/build/index.html,
+    # so that we don't have to deal with having two template directories.
+    # This could be an issue if there was accidentally anything that looked like a template
+    # substitution in the frontend code, but it works for now.
+    return render_template('tanken_index.html')
+
+@app.route("/ja/tanken/<path:name>")
+def ja_tanken_sub(name):
+    return send_from_directory(TANKEN_BUILD_DIR, name)
+
+
+#
+# API
+#
+
 @app.route("/api/get_text_normal_counts", methods=['POST'])
 def api_get_text_normals():
     req = request.get_json()

@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Massif - Tanken</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <script>
+      // These URLs get set by Flask, as this file actually gets rendered as a template.
+      "use strict";
+      var MASSIF_URL_API_GET_NORMAL_FRAGMENTS = "{{ url_for('api_get_normal_fragments', _external=True) }}";
+    </script>
+    <div id="root"></div>
+  </body>
+</html>
