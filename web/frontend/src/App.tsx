@@ -1,5 +1,5 @@
 import React, {useEffect, Fragment, ReactNode, useMemo} from 'react';
-import {reducer, INITIAL_STATE, SavingFragmentState} from './State';
+import {reducer, INITIAL_STATE, SavingFragmentState, SuggestedFragment} from './State';
 import './App.css';
 import { useEffectfulReducer } from './useEffectfulReducer';
 
@@ -54,7 +54,7 @@ const App: React.FC = () => {
 
   const savedFragmentTexts = useMemo(() => new Set(state.savedFragments.map(frag => frag.text)), [state.savedFragments])
 
-  const analyzeKnownText = (text: string): void => {
+  const analyzeKnownText = (text: string, filename: string): void => {
     const sentences: Array<string> = [];
 
     for (const line of text.split('\n')) {
@@ -89,7 +89,12 @@ const App: React.FC = () => {
         normals.push(key);
       }
 
-      dispatch({tag: 'add_known_normals', normals});
+      dispatch({
+        tag: 'add_known_text',
+        text: knownText,
+        normals,
+        filename,
+      });
     })();
   };
 
@@ -104,7 +109,7 @@ const App: React.FC = () => {
         if (typeof(reader.result) !== 'string') {
           throw new Error();
         }
-        analyzeKnownText(reader.result);
+        analyzeKnownText(reader.result, file.name);
       };
       reader.onerror = () => {
         // TODO: handle
@@ -112,12 +117,18 @@ const App: React.FC = () => {
     }
   };
 
-  const handleKnowSuggestedNormalClick = () => {
-    if (state.suggestedNormal === null) {
-      throw new Error();
-    }
-    dispatch({tag: 'add_known_normals', normals: [state.suggestedNormal]});
-  }
+  const handleUpdateSuggestedNormal = () => {
+    dispatch({tag: 'update_suggested_normal'});
+  };
+
+  const handleMarkFragmentKnown = (frag: SuggestedFragment) => {
+    dispatch({
+      tag: 'add_known_text',
+      text: frag.text,
+      normals: frag.normals,
+      filename: null,
+    });
+  };
 
   const handleExportSavedFragmentsClick = () => {
     const tags = 'pathfinder';
@@ -125,7 +136,7 @@ const App: React.FC = () => {
     const datetimeStr = (new Date()).toISOString().replace('Z', '').replaceAll(':', '-').substr(0, 19);
     const fn = `pathfinder-${datetimeStr}.tsv`;
     downloadTextFile(fn, text);
-  }
+  };
 
   return (
     <div className="App">
@@ -134,9 +145,9 @@ const App: React.FC = () => {
       ) : (
         <div className="App-columns">
           <div>
-            <p><input type="file" id="known-text-file" onChange={handleKnownTextFileChange} /></p>
-            <p>Known count: {state.knownNormals.size}</p>
-            <p>Suggested normal: {state.suggestedNormal} {(state.suggestedNormal !== null) && <button onClick={handleKnowSuggestedNormalClick}>I know this</button>}</p>
+            <p>Import known text: <input type="file" id="known-text-file" onChange={handleKnownTextFileChange} /></p>
+            <p>Skipped normals: {state.skipNormals.size}</p>
+            <p>Suggested normal: {(state.suggestedNormal === null) ? <em>none</em> : state.suggestedNormal} <button onClick={handleUpdateSuggestedNormal}>Update</button></p>
             <p>{state.statusLog.map((entry, idx) => (<React.Fragment key={idx}>{entry}<br/></React.Fragment>))}</p>
             {state.savingFragment &&
               <SavingFragmentForm
@@ -150,7 +161,7 @@ const App: React.FC = () => {
           <div>
             <p>Suggested fragments:</p>
             <ul>{(state.suggestedFragments !== 'fetching') && state.suggestedFragments?.map((frag, idx) => {
-              return <li key={idx}>{frag.text} <button onClick={() => { dispatch({tag: 'begin_saving_fragment', fragment: frag}); }} disabled={savedFragmentTexts.has(frag.text)}>+</button><br/>{frag.reading}</li>;
+              return <li key={idx}>{frag.text} <button onClick={() => { dispatch({tag: 'begin_saving_fragment', fragment: frag}); }} disabled={savedFragmentTexts.has(frag.text)}>+</button> <button onClick={() => { handleMarkFragmentKnown(frag); }} disabled={state.knownTextsSet.has(frag.text)}>Known</button><br/>{frag.reading}</li>;
             })}</ul>
           </div>
           <div>

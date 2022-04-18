@@ -1,9 +1,9 @@
-import { SavedFragment } from "./State";
+import { KnownText, SavedFragment } from "./State";
 
 const PROFILE_STORAGE_KEY = 'massif_pathfinder_v1';
 
 export interface Profile {
-  readonly knownNormals: ReadonlySet<string>;
+  readonly knownTexts: ReadonlyArray<KnownText>;
   readonly savedFragments: ReadonlyArray<SavedFragment>;
 }
 
@@ -17,15 +17,9 @@ export function loadProfile(): Profile | null {
 
   // NOTE: We do no validation of the contents, even the types
 
-  return {
-    knownNormals: new Set(storedObj.knownNormals),
-    savedFragments: storedObj.savedFragments,
-  };
+  return storedObj;
 }
 
 export function saveProfile(profile: Profile): void {
-  localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({
-    knownNormals: [...profile.knownNormals],
-    savedFragments: profile.savedFragments,
-  }));
+  localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
 }

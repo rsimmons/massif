@@ -15,15 +15,27 @@ export interface SavedFragment {
   readonly text: string;
   readonly reading: string;
   readonly notes: string;
+  readonly normals: ReadonlyArray<string>;
 }
 
 export type SavingFragmentState = SavedFragment; // for now the same, could have more state later
 
+export interface KnownText {
+  readonly text: string;
+  readonly normals: ReadonlyArray<string>;
+  readonly timeAdded: number; // milliseconds since epoch
+  readonly filename: string | null;
+}
+
 // invariant: If suggestedFragments are set (an array), then they match suggestedNormal
 export interface State {
   readonly loading: boolean;
-  readonly knownNormals: ReadonlySet<string>;
+  readonly knownTexts: ReadonlyArray<KnownText>;
   readonly savedFragments: ReadonlyArray<SavedFragment>;
+
+  // these are derived (denormalized) from knownTexts
+  readonly skipNormals: ReadonlySet<string>;
+  readonly knownTextsSet: ReadonlySet<string>;
 
   readonly statusLog: ReadonlyArray<string>;
   readonly suggestedNormal: string | null;
@@ -35,9 +47,15 @@ export interface InitAction {
   readonly tag: 'init';
 }
 
-export interface AddKnownNormalsAction {
-  readonly tag: 'add_known_normals';
+export interface AddKnownTextAction {
+  readonly tag: 'add_known_text';
+  readonly text: string;
   readonly normals: ReadonlyArray<string>;
+  readonly filename: string | null;
+}
+
+export interface UpdateSuggestedNormal {
+  readonly tag: 'update_suggested_normal';
 }
 
 export interface SetSuggestedFragmentsAction {
@@ -64,7 +82,7 @@ export interface DeleteSavedFragment {
   readonly fragmentId: string;
 }
 
-type Action = InitAction | AddKnownNormalsAction | SetSuggestedFragmentsAction | BeginSavingFragmentAction | UpdateSavingFragmentAction | FinishSavingFragmentAction | DeleteSavedFragment;
+type Action = InitAction | AddKnownTextAction | UpdateSuggestedNormal | SetSuggestedFragmentsAction | BeginSavingFragmentAction | UpdateSavingFragmentAction | FinishSavingFragmentAction | DeleteSavedFragment;
 
 function genRandomStr32(): string {
   return Math.random().toString(16).substring(2, 10);
@@ -73,9 +91,9 @@ function genRandomStr64(): string {
   return genRandomStr32() + genRandomStr32();
 }
 
-function findNextSuggestedNormal(knownNormals: ReadonlySet<string>): string | null {
+function findNextSuggestedNormal(skipNormals: ReadonlySet<string>): string | null {
   for (const n of FREQ_LIST) {
-    if (!knownNormals.has(n)) {
+    if (!skipNormals.has(n)) {
       return n;
     }
   }
@@ -85,7 +103,7 @@ function findNextSuggestedNormal(knownNormals: ReadonlySet<string>): string | nu
 
 // Update suggestedNormal, and starts async update of suggestedFragments, based on rest of state.
 const updateSuggestions = (s: State, dispatch: (a: Action) => void): State => {
-  const newSuggestedNormal = findNextSuggestedNormal(s.knownNormals);
+  const newSuggestedNormal = findNextSuggestedNormal(s.skipNormals);
   if (newSuggestedNormal === s.suggestedNormal) {
     return s;
   } else if (newSuggestedNormal === null) {
@@ -125,37 +143,52 @@ const updateSuggestions = (s: State, dispatch: (a: Action) => void): State => {
   }
 };
 
+const updateDenormalized = (s: State): State => {
+  return {
+    ...s,
+    skipNormals: new Set([...s.knownTexts.map(text => text.normals), ...s.savedFragments.map(frag => frag.normals)].flat()),
+    knownTextsSet: new Set(s.knownTexts.map(text => text.text).flat()),
+  };
+};
+
 export function reducer(s: State, a: Action, dispatch: (a: Action) => void): State {
   switch (a.tag) {
     case 'init': {
       // Do initial load from storage
       const profile = loadProfile();
 
-      const postLoadState: State = profile ? {
+      return updateSuggestions(updateDenormalized(profile ? {
         ...s,
         loading: false,
-        knownNormals: new Set(profile.knownNormals),
+        knownTexts: profile.knownTexts,
         savedFragments: profile.savedFragments,
       } : {
         ...s,
         loading: false,
-      };
-
-      return updateSuggestions(postLoadState, dispatch);
+      }), dispatch);
     }
 
-    case 'add_known_normals': {
-      const newKnownNormals = new Set([...s.knownNormals, ...a.normals]);
+    case 'add_known_text': {
+      const newKnownTexts: ReadonlyArray<KnownText> = [...s.knownTexts, {
+        text: a.text,
+        normals: a.normals,
+        timeAdded: Date.now(),
+        filename: a.filename,
+      }];
 
       saveProfile({
-        knownNormals: newKnownNormals,
+        knownTexts: newKnownTexts,
         savedFragments: s.savedFragments,
       });
 
-      return updateSuggestions({
+      return updateDenormalized({
         ...s,
-        knownNormals: newKnownNormals,
-      }, dispatch);
+        knownTexts: newKnownTexts,
+      });
+    }
+
+    case 'update_suggested_normal': {
+      return updateSuggestions(s, dispatch);
     }
 
     case 'set_suggested_fragments': {
@@ -174,6 +207,7 @@ export function reducer(s: State, a: Action, dispatch: (a: Action) => void): Sta
           text: sugFrag.text,
           reading: sugFrag.reading,
           notes: '',
+          normals: sugFrag.normals,
         },
       };
     }
@@ -197,11 +231,11 @@ export function reducer(s: State, a: Action, dispatch: (a: Action) => void): Sta
       };
 
       saveProfile({
-        knownNormals: newState.knownNormals,
+        knownTexts: newState.knownTexts,
         savedFragments: newState.savedFragments,
       });
 
-      return newState;
+      return updateDenormalized(newState);
     }
 
     case 'delete_saved_fragment': {
@@ -211,19 +245,22 @@ export function reducer(s: State, a: Action, dispatch: (a: Action) => void): Sta
       };
 
       saveProfile({
-        knownNormals: newState.knownNormals,
+        knownTexts: newState.knownTexts,
         savedFragments: newState.savedFragments,
       });
 
-      return newState;
+      return updateDenormalized(newState);
     }
   }
 }
 
 export const INITIAL_STATE: State = {
   loading: true,
-  knownNormals: new Set(),
+  knownTexts: [],
   savedFragments: [],
+
+  skipNormals: new Set(),
+  knownTextsSet: new Set(),
 
   statusLog: [],
   suggestedNormal: null,
