@@ -168,7 +168,7 @@ const reducer: EffectReducer<TankenState, TankenEvent, TankenEffect> = (state, e
 
           const idx = NORMAL_TO_FREQ_INDEX.get(normal);
           if (idx === undefined) {
-            console.log('no index for normal', normal);
+            // console.log('no index for normal', normal);
             // if not in our list, consider it really rare (even though it might just be a name or something)
             maxNormalIdx = Infinity;
           } else {
@@ -188,7 +188,7 @@ const reducer: EffectReducer<TankenState, TankenEvent, TankenEffect> = (state, e
           unseenFrags.push(frag);
         }
       }
-      console.log(seenFrags, unseenFrags);
+      // console.log(seenFrags, unseenFrags);
 
       if (unseenFrags.length === 0) {
         throw new Error();
