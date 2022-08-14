@@ -8132,6 +8132,11 @@ uri-js@^4.2.2:
   dependencies:
     punycode "^2.1.0"
 
+use-effect-reducer@^0.7.0:
+  version "0.7.0"
+  resolved "https://registry.yarnpkg.com/use-effect-reducer/-/use-effect-reducer-0.7.0.tgz#7e08714145a44b84c39c101e8898750b400d61de"
+  integrity sha512-TinyyjN4AdKztczq0nG0GuGPWwOLjUw29qWEOSxv/YDc954EbVNFbobQQwnzSAhM4xpE/2zt5rw0t/EZjJ0HSA==
+
 util-deprecate@^1.0.1, util-deprecate@^1.0.2, util-deprecate@~1.0.1:
   version "1.0.2"
   resolved "https://registry.yarnpkg.com/util-deprecate/-/util-deprecate-1.0.2.tgz#450d4dc9fa70de732762fbd2d4a28981419a0ccf"
