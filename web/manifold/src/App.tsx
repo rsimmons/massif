@@ -1,7 +1,18 @@
 import React from 'react';
 import { useEffectReducer, EffectReducer, EffectsMap, InitialEffectStateGetter, EffectReducerExec } from "use-effect-reducer";
 
+import { genRandomStr64, getUnixTime, invariant, randomChoice, UnreachableCaseError } from './util';
+
 import './App.css';
+
+const LEARNING_STEPS = [1*60, 10*60];
+const GRADUATING_INTERVAL = 18*60*60;
+const SUCCESS_MULT = 2.0;
+const FAIL_EXP = 0.5;
+const JITTER = 0.1; // as proportion of new interval after adjustment
+
+const INITIAL_INTERVAL = LEARNING_STEPS[0];
+const LAST_LEARNING_INTERVAL = LEARNING_STEPS[LEARNING_STEPS.length - 1];
 
 // Globals set by Flask in index.html
 declare const MASSIF_URL_JA_FRAGMENT_SEARCH: string;
@@ -29,7 +40,7 @@ type AddWordPanelState = null | {
 
 interface ManifoldState {
   // Saved state
-  readonly atoms: ReadonlyArray<Atom>;
+  readonly atoms: ReadonlyMap<string, Atom>;
   readonly queue: ReadonlyArray<QueueItem>;
 
   // Unsaved state (UI, derived state)
@@ -37,15 +48,16 @@ interface ManifoldState {
     readonly mode: 'overview';
   } | {
     readonly mode: 'quizLoadingTargetCtx';
-    readonly targetAtomSearchString: string;
   } | {
     readonly mode: 'quiz';
     readonly gradingRevealed: boolean;
     readonly fragmentText: string;
     readonly fragmentUnderstood: null | FragmentUnderstood;
     readonly targetAtom: null | {
+      readonly atomId: string;
       readonly searchString: string;
       readonly remembered: null | AtomRemembered;
+      readonly targetNotInFragment: boolean;
     };
   } | {
     readonly mode: 'nothingToQuiz';
@@ -73,42 +85,42 @@ type ManifoldEvent =
   } | {
     readonly type: 'quizBegin';
   } | {
-    readonly type: 'quizTargetCtxFragments';
-    readonly searchString: string;
+    readonly type: 'quizRcvdTargetCtxFragments';
+    readonly atomId: string;
     readonly results: FragmentSearchResults;
-  }
+  } | {
+    readonly type: 'quizRevealGrading';
+  } | {
+    readonly type: 'quizUpdateFragmentUnderstood';
+    readonly val: FragmentUnderstood;
+  } | {
+    readonly type: 'quizUpdateTargetAtomRemembered';
+    readonly val: AtomRemembered;
+  } | {
+    readonly type: 'quizSubmitGrading';
+  } | {
+    readonly type: 'quizRefresh';
+  };
 
 type ManifoldEffect =
   {
-    readonly type: 'searchFragments';
-    readonly searchString: string;
+    readonly type: 'quizSearchForTargetCtxFragments';
+    readonly atomId: string;
   };
 
 type ManifoldDispatch = React.Dispatch<ManifoldEvent>;
 type ManifoldExec = EffectReducerExec<ManifoldState, ManifoldEvent, ManifoldEffect>;
 
-function getUnixTime(): number {
-  return Math.floor(0.001*Date.now());
-}
-
-function randomChoice<T>(arr: ReadonlyArray<T>): T {
-  if (arr.length < 1) {
-    throw new Error();
-  }
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function quizTargetAtom(state: ManifoldState, targetAtomSearchString: string, exec: ManifoldExec): ManifoldState {
+function quizTargetAtom(state: ManifoldState, atomId: string, exec: ManifoldExec): ManifoldState {
   exec({
-    type: 'searchFragments',
-    searchString: targetAtomSearchString,
+    type: 'quizSearchForTargetCtxFragments',
+    atomId,
   });
 
   return {
     ...state,
     mainUI: {
       mode: 'quizLoadingTargetCtx',
-      targetAtomSearchString: targetAtomSearchString,
     },
   };
 }
@@ -117,12 +129,12 @@ function quizTargetAtom(state: ManifoldState, targetAtomSearchString: string, ex
 function quizNext(state: ManifoldState, exec: ManifoldExec): ManifoldState {
   // sort by ascending review time
   const sortedAtoms = [...state.atoms];
-  sortedAtoms.sort((a, b) => a.rt - b.rt);
+  sortedAtoms.sort(([, aAtom], [, bAtom]) => aAtom.rt - bAtom.rt);
 
   const curTime = getUnixTime();
 
   // Are there any atoms due to review?
-  if ((sortedAtoms.length === 0) || (sortedAtoms[0].rt > curTime)) {
+  if ((sortedAtoms.length === 0) || (sortedAtoms[0][1].rt > curTime)) {
     // No atoms due to review
 
     // Are there any atoms to introduce from queue?
@@ -141,16 +153,70 @@ function quizNext(state: ManifoldState, exec: ManifoldExec): ManifoldState {
       const removedItem = state.queue[0];
       const newQueue = state.queue.slice(1);
 
+      // Add it to atoms
+      const newAtomId = genRandomStr64();
+      const newAtoms = new Map(state.atoms);
+      const newAtom: Atom = {
+        ss: removedItem.ss,
+        rt: curTime,
+        iv: INITIAL_INTERVAL,
+        nt: '',
+        rm: false,
+      }
+      newAtoms.set(newAtomId, newAtom);
+
       return quizTargetAtom({
         ...state,
-        queue: newQueue
-      }, removedItem.ss, exec);
+        atoms: newAtoms,
+        queue: newQueue,
+      }, newAtomId, exec);
     }
   } else {
     // At least one atom due to review
-    const targetAtom = sortedAtoms[0];
+    const [targetAtomId, ] = sortedAtoms[0];
 
-    return quizTargetAtom(state, targetAtom.ss, exec);
+    return quizTargetAtom(state, targetAtomId, exec);
+  }
+}
+
+function getNewInterval(remembered: AtomRemembered, oldInterval: number): number {
+  const jitter = (iv: number): number => {
+    return (1 + 2*JITTER*(Math.random() - 0.5))*iv;
+  };
+
+  switch (remembered) {
+    case 'y':
+      if (oldInterval > LAST_LEARNING_INTERVAL) {
+        // was already graduated
+        return jitter(SUCCESS_MULT*oldInterval);
+      } else {
+        // was still in learning
+        let nextLearningIterval: number | undefined;
+        for (const iv of LEARNING_STEPS) {
+          if (iv > oldInterval) {
+            nextLearningIterval = iv;
+            break;
+          }
+        }
+        if (nextLearningIterval === undefined) {
+          // graduates
+          return jitter(GRADUATING_INTERVAL);
+        } else {
+          return nextLearningIterval;
+        }
+      }
+
+    case 'n':
+      if (oldInterval > LAST_LEARNING_INTERVAL) {
+        // was already graduated
+        return jitter(Math.pow(oldInterval, FAIL_EXP));
+      } else {
+        // was still in learning
+        return INITIAL_INTERVAL;
+      }
+
+    default:
+      throw new UnreachableCaseError(remembered);
   }
 }
 
@@ -180,9 +246,7 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
       };
 
     case 'addWordPanelAdd': {
-      if (!state.addWordPanel) {
-        throw new Error();
-      }
+      invariant(state.addWordPanel);
 
       const newEntry: QueueItem = {
         ss: state.addWordPanel.text,
@@ -200,8 +264,11 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
     case 'quizBegin':
       return quizNext(state, exec);
 
-    case 'quizTargetCtxFragments': {
+    case 'quizRcvdTargetCtxFragments': {
       const randomFragment = randomChoice(event.results.results);
+
+      const atom = state.atoms.get(event.atomId);
+      invariant(atom);
 
       return {
         ...state,
@@ -211,22 +278,96 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
           fragmentText: randomFragment.text,
           fragmentUnderstood: null,
           targetAtom: {
-            searchString: event.searchString,
+            atomId: event.atomId,
+            searchString: atom.ss,
             remembered: null,
+            targetNotInFragment: false,
           },
         },
       };
     }
+
+    case 'quizRevealGrading':
+      invariant(state.mainUI.mode === 'quiz');
+
+      return {
+        ...state,
+        mainUI: {
+          ...state.mainUI,
+          gradingRevealed: true,
+        },
+      };
+
+    case 'quizUpdateFragmentUnderstood':
+      invariant(state.mainUI.mode === 'quiz');
+
+      return {
+        ...state,
+        mainUI: {
+          ...state.mainUI,
+          fragmentUnderstood: event.val,
+        },
+      };
+
+    case 'quizUpdateTargetAtomRemembered':
+      invariant(state.mainUI.mode === 'quiz');
+      invariant(state.mainUI.targetAtom !== null);
+
+      return {
+        ...state,
+        mainUI: {
+          ...state.mainUI,
+          targetAtom: {
+            ...state.mainUI.targetAtom,
+            remembered: event.val,
+          },
+        },
+      };
+
+    case 'quizSubmitGrading': {
+      invariant(state.mainUI.mode === 'quiz');
+      invariant(state.mainUI.fragmentUnderstood !== null);
+      invariant(state.mainUI.targetAtom !== null);
+      invariant(state.mainUI.targetAtom.remembered !== null);
+
+      const atomId = state.mainUI.targetAtom.atomId;
+      const oldAtom = state.atoms.get(atomId);
+      invariant(oldAtom);
+
+      const newInterval = getNewInterval(state.mainUI.targetAtom.remembered, oldAtom.iv);
+      const newAtom: Atom = {
+        ...oldAtom,
+        iv: newInterval,
+        rt: getUnixTime() + newInterval,
+      };
+
+      const newAtoms = new Map(state.atoms);
+      newAtoms.set(atomId, newAtom);
+
+      console.log('atomId', atomId, 'oldAtom', oldAtom, 'newAtom', newAtom);
+
+      return quizNext({
+        ...state,
+        atoms: newAtoms,
+      }, exec);
+    }
+
+    case 'quizRefresh':
+      invariant(state.mainUI.mode === 'nothingToQuiz');
+      return quizNext(state, exec);
   }
 }
 
 const effectsMap: EffectsMap<ManifoldState, ManifoldEvent, ManifoldEffect> = {
-  searchFragments: (_, effect, dispatch) => {
+  quizSearchForTargetCtxFragments: (state, effect, dispatch) => {
     (async () => {
+      const atom = state.atoms.get(effect.atomId);
+      invariant(atom);
+
       let response: Response;
       try {
         response = await fetch(MASSIF_URL_JA_FRAGMENT_SEARCH + '?' + new URLSearchParams({
-          q: effect.searchString,
+          q: atom.ss,
           fmt: 'json',
         }), {
           method: 'GET',
@@ -235,13 +376,13 @@ const effectsMap: EffectsMap<ManifoldState, ManifoldEvent, ManifoldEffect> = {
           },
         });
       } catch {
-        console.error('searchFragments fetch failed');
+        console.error('quizSearchForTargetCtxFragments fetch failed');
         // TODO: dispatch event
         return;
       }
 
       if (!response.ok) {
-        console.error('searchFragments bad status');
+        console.error('quizSearchForTargetCtxFragments bad status');
         // TODO: dispatch event
         return;
       }
@@ -250,8 +391,8 @@ const effectsMap: EffectsMap<ManifoldState, ManifoldEvent, ManifoldEffect> = {
       const results = await response.json() as FragmentSearchResults;
 
       dispatch({
-        type: 'quizTargetCtxFragments',
-        searchString: effect.searchString,
+        type: 'quizRcvdTargetCtxFragments',
+        atomId: effect.atomId,
         results,
       });
     })();
@@ -260,7 +401,7 @@ const effectsMap: EffectsMap<ManifoldState, ManifoldEvent, ManifoldEffect> = {
 
 const createInitialState: InitialEffectStateGetter<ManifoldState, ManifoldEvent, ManifoldEffect> = (exec) => {
   return {
-    atoms: [],
+    atoms: new Map(),
     queue: [],
     mainUI: {
       mode: 'overview',
@@ -282,6 +423,24 @@ const AddWordPanel: React.FC<{localState: AddWordPanelState, dispatch: ManifoldD
       <input type="text" value={localState.text} onChange={handleChangeWord} />{' '}
       <button onClick={() => {dispatch({type: 'addWordPanelAdd'})}}>Add</button>{' '}
       <button onClick={() => {dispatch({type: 'addWordPanelCancel'})}}>Cancel</button>
+    </div>
+  );
+}
+
+const RadioButtons: React.FC<{label: string, options: ReadonlyArray<{val: string, name: string}>, val: string | null, onUpdate: (newKey: string) => void}> = ({label, options, val, onUpdate}) => {
+  return (
+    <div>
+      <span>{label}</span>{' '}
+      {options.map(option => (
+        <>
+          <button
+            key={option.val}
+            onClick={() => {onUpdate(option.val)}}
+            className={(val === option.val) ? 'App-RadioButtons-selected' : ''}
+          >{option.name}</button>
+          {' '}
+        </>
+      ))}
     </div>
   );
 }
@@ -314,18 +473,55 @@ const App: React.FC = () => {
             return (
               <div>
                 {state.mainUI.fragmentText}
+                {state.mainUI.gradingRevealed ? (
+                  <div>
+                    <RadioButtons
+                      label={'Fragment Understood?'}
+                      options={[
+                        {val: 'y', name: 'Yes'},
+                        {val: 'n', name: 'No'},
+                        {val: 'u', name: 'Unsure'},
+                      ]}
+                      val={state.mainUI.fragmentUnderstood}
+                      onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateFragmentUnderstood', val: newKey as FragmentUnderstood})}}
+                    />
+                    {state.mainUI.targetAtom ? (
+                      <>
+                        <RadioButtons
+                          label={'Target Remembered?'}
+                          options={[
+                            {val: 'y', name: 'Yes'},
+                            {val: 'n', name: 'No'},
+                          ]}
+                          val={state.mainUI.targetAtom.remembered}
+                          onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateTargetAtomRemembered', val: newKey as AtomRemembered})}}
+                        />
+                        <div>
+                          <button>Target Not In Fragment?</button>
+                        </div>
+                      </>
+                    ) : null}
+                    <div>
+                      <button onClick={() => {dispatch({type: 'quizSubmitGrading'})}}>Continue</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <button onClick={() => {dispatch({type: 'quizRevealGrading'})}}>Continue</button>
+                  </div>
+                )}
               </div>
             );
 
           case 'nothingToQuiz':
             return (
               <div>
-                nothing to quiz
+                nothing due to review <button onClick={() => {dispatch({type: 'quizRefresh'})}}>Refresh</button>
               </div>
             );
 
           default:
-            throw new Error();
+            throw new UnreachableCaseError(state.mainUI);
         }
       })()}
     </div>
