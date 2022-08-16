@@ -63,6 +63,7 @@ interface ManifoldState {
     readonly mode: 'nothingToQuiz';
   };
   readonly addWordPanel: AddWordPanelState;
+  readonly atomsAn: AtomsAnalysis; // used for stats display
 }
 
 // note that this is a subset of what's actually returned
@@ -111,7 +112,61 @@ type ManifoldEffect =
 type ManifoldDispatch = React.Dispatch<ManifoldEvent>;
 type ManifoldExec = EffectReducerExec<ManifoldState, ManifoldEvent, ManifoldEffect>;
 
-function quizTargetAtom(state: ManifoldState, atomId: string, exec: ManifoldExec): ManifoldState {
+// There is a lot of shared work between finding the next due atom and computing core stats,
+// so its all done here as "analysis".
+interface AtomsAnalysis {
+  readonly analysisTime: number; // unix time. to make timestamps consistent
+  readonly dueAtoms: {
+    readonly type: 'present';
+    readonly atoms: ReadonlyArray<[string, Atom]>; // array of [atomId, atom]
+  } | {
+    readonly type: 'notYet';
+    readonly timeUntilNextDue: number; // will be greater than zero
+  } | {
+    readonly type: 'noAtoms';
+  };
+}
+function analyzeAtoms(atoms: ReadonlyMap<string, Atom>): AtomsAnalysis {
+  // sort by ascending review time
+  const sortedAtoms = [...atoms];
+  sortedAtoms.sort(([, aAtom], [, bAtom]) => aAtom.rt - bAtom.rt);
+
+  const curTime = getUnixTime();
+
+  const dueAtoms: Array<[string, Atom]> = [];
+  let timeUntilNextDue: number | undefined = undefined;
+  for (const [aid, a] of sortedAtoms) {
+    if (a.rt <= curTime) {
+      dueAtoms.push([aid, a]);
+      timeUntilNextDue = 0;
+    } else {
+      if (dueAtoms.length === 0) {
+        timeUntilNextDue = a.rt - curTime;
+      }
+      break;
+    }
+  }
+
+  // sanity checks
+  if (dueAtoms.length > 0) {
+    invariant(timeUntilNextDue === 0);
+  } else {
+    invariant((timeUntilNextDue === undefined) || (timeUntilNextDue > 0));
+  }
+  if (sortedAtoms.length > 0) {
+    invariant(timeUntilNextDue !== undefined);
+  } else {
+    invariant(timeUntilNextDue === undefined);
+    invariant(dueAtoms.length === 0)
+  }
+
+  return {
+    analysisTime: curTime,
+    dueAtoms: (timeUntilNextDue === undefined) ? {type: 'noAtoms'} : ((timeUntilNextDue > 0) ? {type: 'notYet', timeUntilNextDue} : {type: 'present', atoms: dueAtoms}),
+  };
+}
+
+function updateStateToQuizTargetAtom(state: ManifoldState, atomId: string, exec: ManifoldExec): ManifoldState {
   exec({
     type: 'quizSearchForTargetCtxFragments',
     atomId,
@@ -126,15 +181,16 @@ function quizTargetAtom(state: ManifoldState, atomId: string, exec: ManifoldExec
 }
 
 // Based on atoms, queue, etc. set the current quiz state to be quizzing whatever is next, or give message that nothing is available
-function quizNext(state: ManifoldState, exec: ManifoldExec): ManifoldState {
-  // sort by ascending review time
-  const sortedAtoms = [...state.atoms];
-  sortedAtoms.sort(([, aAtom], [, bAtom]) => aAtom.rt - bAtom.rt);
-
-  const curTime = getUnixTime();
+function updateStateToQuizNext(state: ManifoldState, exec: ManifoldExec): ManifoldState {
+  const atomsAn = analyzeAtoms(state.atoms);
 
   // Are there any atoms due to review?
-  if ((sortedAtoms.length === 0) || (sortedAtoms[0][1].rt > curTime)) {
+  if (atomsAn.dueAtoms.type === 'present') {
+    // something due to review
+    const [targetAtomId, ] = atomsAn.dueAtoms.atoms[0];
+
+    return updateStateToQuizTargetAtom(state, targetAtomId, exec);
+  } else {
     // No atoms due to review
 
     // Are there any atoms to introduce from queue?
@@ -158,24 +214,19 @@ function quizNext(state: ManifoldState, exec: ManifoldExec): ManifoldState {
       const newAtoms = new Map(state.atoms);
       const newAtom: Atom = {
         ss: removedItem.ss,
-        rt: curTime,
+        rt: atomsAn.analysisTime,
         iv: INITIAL_INTERVAL,
         nt: '',
         rm: false,
       }
       newAtoms.set(newAtomId, newAtom);
 
-      return quizTargetAtom({
+      return updateStateToQuizTargetAtom({
         ...state,
         atoms: newAtoms,
         queue: newQueue,
       }, newAtomId, exec);
     }
-  } else {
-    // At least one atom due to review
-    const [targetAtomId, ] = sortedAtoms[0];
-
-    return quizTargetAtom(state, targetAtomId, exec);
   }
 }
 
@@ -188,7 +239,7 @@ function getNewInterval(remembered: AtomRemembered, oldInterval: number): number
     case 'y':
       if (oldInterval > LAST_LEARNING_INTERVAL) {
         // was already graduated
-        return jitter(SUCCESS_MULT*oldInterval);
+        return Math.floor(jitter(SUCCESS_MULT*oldInterval));
       } else {
         // was still in learning
         let nextLearningIterval: number | undefined;
@@ -200,7 +251,7 @@ function getNewInterval(remembered: AtomRemembered, oldInterval: number): number
         }
         if (nextLearningIterval === undefined) {
           // graduates
-          return jitter(GRADUATING_INTERVAL);
+          return Math.floor(jitter(GRADUATING_INTERVAL));
         } else {
           return nextLearningIterval;
         }
@@ -209,7 +260,7 @@ function getNewInterval(remembered: AtomRemembered, oldInterval: number): number
     case 'n':
       if (oldInterval > LAST_LEARNING_INTERVAL) {
         // was already graduated
-        return jitter(Math.pow(oldInterval, FAIL_EXP));
+        return Math.floor(jitter(Math.pow(oldInterval, FAIL_EXP)));
       } else {
         // was still in learning
         return INITIAL_INTERVAL;
@@ -218,6 +269,22 @@ function getNewInterval(remembered: AtomRemembered, oldInterval: number): number
     default:
       throw new UnreachableCaseError(remembered);
   }
+}
+
+function updateStateCoreStats(state: ManifoldState): ManifoldState {
+  const atomsAn = analyzeAtoms(state.atoms);
+
+  return {
+    ...state,
+    atomsAn,
+  };
+}
+
+function stateCanSubmitGrading(state: ManifoldState): boolean {
+  invariant(state.mainUI.mode === 'quiz');
+  invariant(state.mainUI.targetAtom !== null);
+
+  return (state.mainUI.fragmentUnderstood !== null) && (state.mainUI.targetAtom.remembered !== null);
 }
 
 const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (state, event, exec) => {
@@ -249,20 +316,27 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
       invariant(state.addWordPanel);
 
       const newEntry: QueueItem = {
-        ss: state.addWordPanel.text,
+        ss: state.addWordPanel.text.trim(),
         ta: getUnixTime(),
         fq: 0, // stubbed
       };
 
-      return {
+      const afterQueueState: ManifoldState = {
         ...state,
         queue: [...state.queue, newEntry],
         addWordPanel: null,
       };
+
+      if (state.mainUI.mode === 'nothingToQuiz') {
+        // this will "refresh" the quiz page if it is saying that nothing is due
+        return updateStateCoreStats(updateStateToQuizNext(afterQueueState, exec));
+      } else {
+        return updateStateCoreStats(afterQueueState);
+      }
     }
 
     case 'quizBegin':
-      return quizNext(state, exec);
+      return updateStateCoreStats(updateStateToQuizNext(state, exec));
 
     case 'quizRcvdTargetCtxFragments': {
       const randomFragment = randomChoice(event.results.results);
@@ -326,15 +400,18 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
 
     case 'quizSubmitGrading': {
       invariant(state.mainUI.mode === 'quiz');
-      invariant(state.mainUI.fragmentUnderstood !== null);
       invariant(state.mainUI.targetAtom !== null);
-      invariant(state.mainUI.targetAtom.remembered !== null);
+      invariant(state.mainUI.fragmentUnderstood !== null);
+      const remembered = state.mainUI.targetAtom.remembered;
+      invariant(remembered !== null);
+
+      invariant(stateCanSubmitGrading(state)); // currently redundant with above, for type narrowing purposes
 
       const atomId = state.mainUI.targetAtom.atomId;
       const oldAtom = state.atoms.get(atomId);
       invariant(oldAtom);
 
-      const newInterval = getNewInterval(state.mainUI.targetAtom.remembered, oldAtom.iv);
+      const newInterval = getNewInterval(remembered, oldAtom.iv);
       const newAtom: Atom = {
         ...oldAtom,
         iv: newInterval,
@@ -344,17 +421,22 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
       const newAtoms = new Map(state.atoms);
       newAtoms.set(atomId, newAtom);
 
-      console.log('atomId', atomId, 'oldAtom', oldAtom, 'newAtom', newAtom);
+      console.log('atom update:', {
+        remembered,
+        atomId,
+        oldAtom,
+        newAtom,
+      });
 
-      return quizNext({
+      return updateStateCoreStats(updateStateToQuizNext({
         ...state,
         atoms: newAtoms,
-      }, exec);
+      }, exec));
     }
 
     case 'quizRefresh':
       invariant(state.mainUI.mode === 'nothingToQuiz');
-      return quizNext(state, exec);
+      return updateStateCoreStats(updateStateToQuizNext(state, exec));
   }
 }
 
@@ -407,6 +489,12 @@ const createInitialState: InitialEffectStateGetter<ManifoldState, ManifoldEvent,
       mode: 'overview',
     },
     addWordPanel: null,
+    atomsAn: {
+      analysisTime: getUnixTime(),
+      dueAtoms: {
+        type: 'noAtoms',
+      }
+    },
   };
 }
 
@@ -452,12 +540,30 @@ const App: React.FC = () => {
     <div className="App">
       <div>Manifold</div>
       <AddWordPanel localState={state.addWordPanel} dispatch={dispatch} />
+      <div>
+        {(() => {
+          const dueAtoms = state.atomsAn.dueAtoms;
+          switch (dueAtoms.type) {
+            case 'noAtoms':
+              return null;
+
+            case 'notYet':
+              return <>next due in {dueAtoms.timeUntilNextDue}s</>
+
+            case 'present':
+              return <>{dueAtoms.atoms.length} due now</>
+
+            default:
+              throw new UnreachableCaseError(dueAtoms);
+          }
+        })()}
+      </div>
+      <div>{state.queue.length} in queue</div>
       {(() => {
         switch (state.mainUI.mode) {
           case 'overview':
             return (
               <div>
-                <div>{state.queue.length} in queue</div>
                 <div><button onClick={() => {dispatch({type: 'quizBegin'})}}>Study</button></div>
               </div>
             );
@@ -465,7 +571,7 @@ const App: React.FC = () => {
           case 'quizLoadingTargetCtx':
             return (
               <div>
-                quizLoadingTargetCtx
+                loading context...
               </div>
             );
 
@@ -502,7 +608,7 @@ const App: React.FC = () => {
                       </>
                     ) : null}
                     <div>
-                      <button onClick={() => {dispatch({type: 'quizSubmitGrading'})}}>Continue</button>
+                      <button onClick={() => {dispatch({type: 'quizSubmitGrading'})}} disabled={!stateCanSubmitGrading(state)}>Continue</button>
                     </div>
                   </div>
                 ) : (
