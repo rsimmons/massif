@@ -22,9 +22,8 @@
 	text-decoration: none;
 	text-shadow: 0px 1px 0px #ffffff;
 }
-.App-chonky-button:hover {
-  background-color: #f6f6f6;
-}
+/* .App-chonky-button:hover {
+} */
 .App-chonky-button:active {
   position: relative;
 	top: 1px;
@@ -49,7 +48,8 @@
 }
 
 .App-button-selected {
-  color: green;
+  background: #eec3c3;
+  box-shadow: none;
 }
 
 .App-StatusPanel-add-word {
