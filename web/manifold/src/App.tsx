@@ -14,6 +14,8 @@ const JITTER = 0.1; // as proportion of new interval after adjustment
 const INITIAL_INTERVAL = LEARNING_STEPS[0];
 const LAST_LEARNING_INTERVAL = LEARNING_STEPS[LEARNING_STEPS.length - 1];
 
+const LOCAL_STORAGE_KEY = 'massif-manifold-v1';
+
 // Globals set by Flask in index.html
 declare const MASSIF_URL_JA_FRAGMENT_SEARCH: string;
 
@@ -34,7 +36,7 @@ interface QueueItem {
 type FragmentUnderstood = 'y' | 'n' | 'u';
 type AtomRemembered = 'y' | 'n';
 
-type AddWordPanelState = null | {
+type AddWordPanelState = {
   readonly text: string;
 }
 
@@ -54,6 +56,7 @@ interface ManifoldState {
     readonly fragmentText: string;
     readonly fragmentUnderstood: null | FragmentUnderstood;
     readonly targetAtom: null | {
+      readonly fragmentHighlightedHTML: string;
       readonly atomId: string;
       readonly searchString: string;
       readonly remembered: null | AtomRemembered;
@@ -70,15 +73,12 @@ interface ManifoldState {
 interface FragmentSearchResults {
   readonly results: ReadonlyArray<{
     readonly text: string;
+    readonly highlighted_html: string;
   }>;
 }
 
 type ManifoldEvent =
   {
-    readonly type: 'addWordPanelOpen';
-  } | {
-    readonly type: 'addWordPanelCancel';
-  } | {
     readonly type: 'addWordPanelUpdateWord';
     readonly text: string;
   } | {
@@ -98,6 +98,8 @@ type ManifoldEvent =
     readonly type: 'quizUpdateTargetAtomRemembered';
     readonly val: AtomRemembered;
   } | {
+    readonly type: 'quizToggleTargetNotInFragment';
+  } | {
     readonly type: 'quizSubmitGrading';
   } | {
     readonly type: 'quizRefresh';
@@ -105,6 +107,8 @@ type ManifoldEvent =
 
 type ManifoldEffect =
   {
+    readonly type: 'saveStateToStorage';
+  } | {
     readonly type: 'quizSearchForTargetCtxFragments';
     readonly atomId: string;
   };
@@ -289,20 +293,6 @@ function stateCanSubmitGrading(state: ManifoldState): boolean {
 
 const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (state, event, exec) => {
   switch (event.type) {
-    case 'addWordPanelOpen':
-      return {
-        ...state,
-        addWordPanel: {
-          text: '',
-        },
-      };
-
-    case 'addWordPanelCancel':
-      return {
-        ...state,
-        addWordPanel: null,
-      };
-
     case 'addWordPanelUpdateWord':
       return {
         ...state,
@@ -324,8 +314,13 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
       const afterQueueState: ManifoldState = {
         ...state,
         queue: [...state.queue, newEntry],
-        addWordPanel: null,
+        addWordPanel: {
+          text: '',
+        },
       };
+
+      // the effect handler gets the final returned state, so OK to exec here
+      exec({type: 'saveStateToStorage'});
 
       if (state.mainUI.mode === 'nothingToQuiz') {
         // this will "refresh" the quiz page if it is saying that nothing is due
@@ -352,6 +347,7 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
           fragmentText: randomFragment.text,
           fragmentUnderstood: null,
           targetAtom: {
+            fragmentHighlightedHTML: randomFragment.highlighted_html,
             atomId: event.atomId,
             searchString: atom.ss,
             remembered: null,
@@ -398,6 +394,21 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
         },
       };
 
+    case 'quizToggleTargetNotInFragment':
+      invariant(state.mainUI.mode === 'quiz');
+      invariant(state.mainUI.targetAtom !== null);
+
+      return {
+        ...state,
+        mainUI: {
+          ...state.mainUI,
+          targetAtom: {
+            ...state.mainUI.targetAtom,
+            targetNotInFragment: !state.mainUI.targetAtom.targetNotInFragment,
+          },
+        },
+      };
+
     case 'quizSubmitGrading': {
       invariant(state.mainUI.mode === 'quiz');
       invariant(state.mainUI.targetAtom !== null);
@@ -428,6 +439,9 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
         newAtom,
       });
 
+      // the effect handler gets the final returned state, so OK to exec here
+      exec({type: 'saveStateToStorage'});
+
       return updateStateCoreStats(updateStateToQuizNext({
         ...state,
         atoms: newAtoms,
@@ -441,6 +455,13 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
 }
 
 const effectsMap: EffectsMap<ManifoldState, ManifoldEvent, ManifoldEffect> = {
+  saveStateToStorage: (state, effect, dispatch) => {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({
+      atoms: [...state.atoms.entries()],
+      queue: state.queue,
+    }));
+  },
+
   quizSearchForTargetCtxFragments: (state, effect, dispatch) => {
     (async () => {
       const atom = state.atoms.get(effect.atomId);
@@ -482,20 +503,26 @@ const effectsMap: EffectsMap<ManifoldState, ManifoldEvent, ManifoldEffect> = {
 };
 
 const createInitialState: InitialEffectStateGetter<ManifoldState, ManifoldEvent, ManifoldEffect> = (exec) => {
-  return {
-    atoms: new Map(),
-    queue: [],
+  const storedStateStr = localStorage.getItem(LOCAL_STORAGE_KEY);
+  const storedState = storedStateStr ? JSON.parse(storedStateStr) : null;
+  // NOTE: We don't validate the shape of storedState
+
+  return updateStateCoreStats({
+    atoms: storedState ? new Map(storedState.atoms) : new Map(),
+    queue: storedState ? storedState.queue : [],
     mainUI: {
       mode: 'overview',
     },
-    addWordPanel: null,
+    addWordPanel: {
+      text: '',
+    },
     atomsAn: {
       analysisTime: getUnixTime(),
       dueAtoms: {
         type: 'noAtoms',
       }
     },
-  };
+  });
 }
 
 // this may render to the opened panel or just the button
@@ -504,13 +531,41 @@ const AddWordPanel: React.FC<{localState: AddWordPanelState, dispatch: ManifoldD
     dispatch({type: 'addWordPanelUpdateWord', text: event.target.value});
   };
 
-  return (localState === null) ? (
-    <button onClick={() => {dispatch({type: 'addWordPanelOpen'})}}>Add Word</button>
-  ) : (
+  return (
     <div className="App-AddWordPanel">
-      <input type="text" value={localState.text} onChange={handleChangeWord} />{' '}
-      <button onClick={() => {dispatch({type: 'addWordPanelAdd'})}}>Add</button>{' '}
-      <button onClick={() => {dispatch({type: 'addWordPanelCancel'})}}>Cancel</button>
+      <input className="App-AddWordPanel-word" type="text" value={localState.text} onChange={handleChangeWord} />{' '}
+      <button className="App-small-button" onClick={() => {dispatch({type: 'addWordPanelAdd'})}}>Add Word</button>
+    </div>
+  );
+}
+
+const StatusPanel: React.FC<{state: ManifoldState, dispatch: ManifoldDispatch}> = ({state, dispatch}) => {
+  return (
+    <div className="App-StatusPanel">
+      <div className="App-StatusPanel-stats">
+        <div>
+          {(() => {
+            const dueAtoms = state.atomsAn.dueAtoms;
+            switch (dueAtoms.type) {
+              case 'noAtoms':
+                return null;
+
+              case 'notYet':
+                return <>{dueAtoms.timeUntilNextDue}s until due</>
+
+              case 'present':
+                return <>{dueAtoms.atoms.length} due now</>
+
+              default:
+                throw new UnreachableCaseError(dueAtoms);
+            }
+          })()}
+        </div>
+        <div>{state.queue.length} in queue</div>
+      </div>
+      <div className="App-StatusPanel-add-word">
+        <AddWordPanel localState={state.addWordPanel} dispatch={dispatch} />
+      </div>
     </div>
   );
 }
@@ -518,17 +573,19 @@ const AddWordPanel: React.FC<{localState: AddWordPanelState, dispatch: ManifoldD
 const RadioButtons: React.FC<{label: string, options: ReadonlyArray<{val: string, name: string}>, val: string | null, onUpdate: (newKey: string) => void}> = ({label, options, val, onUpdate}) => {
   return (
     <div>
-      <span>{label}</span>{' '}
-      {options.map(option => (
-        <>
-          <button
-            key={option.val}
-            onClick={() => {onUpdate(option.val)}}
-            className={(val === option.val) ? 'App-RadioButtons-selected' : ''}
-          >{option.name}</button>
-          {' '}
-        </>
-      ))}
+      <div>{label}</div>
+      <div>
+        {options.map(option => (
+          <>
+            <button
+              key={option.val}
+              onClick={() => {onUpdate(option.val)}}
+              className={'App-chonky-button' + ((val === option.val) ? ' App-button-selected' : '')}
+            >{option.name}</button>
+            {' '}
+          </>
+        ))}
+      </div>
     </div>
   );
 }
@@ -538,98 +595,103 @@ const App: React.FC = () => {
 
   return (
     <div className="App">
-      <div>Manifold</div>
-      <AddWordPanel localState={state.addWordPanel} dispatch={dispatch} />
-      <div>
+      <StatusPanel state={state} dispatch={dispatch} />
+      <div className="App-main-area">
         {(() => {
-          const dueAtoms = state.atomsAn.dueAtoms;
-          switch (dueAtoms.type) {
-            case 'noAtoms':
-              return null;
+          switch (state.mainUI.mode) {
+            case 'overview':
+              return (
+                <>
+                  <button className="App-chonky-button" onClick={() => {dispatch({type: 'quizBegin'})}}>Study</button>
+                </>
+              );
 
-            case 'notYet':
-              return <>next due in {dueAtoms.timeUntilNextDue}s</>
+            case 'quizLoadingTargetCtx':
+              return (
+                <>
+                  loading context...
+                </>
+              );
 
-            case 'present':
-              return <>{dueAtoms.atoms.length} due now</>
-
-            default:
-              throw new UnreachableCaseError(dueAtoms);
-          }
-        })()}
-      </div>
-      <div>{state.queue.length} in queue</div>
-      {(() => {
-        switch (state.mainUI.mode) {
-          case 'overview':
-            return (
-              <div>
-                <div><button onClick={() => {dispatch({type: 'quizBegin'})}}>Study</button></div>
-              </div>
-            );
-
-          case 'quizLoadingTargetCtx':
-            return (
-              <div>
-                loading context...
-              </div>
-            );
-
-          case 'quiz':
-            return (
-              <div>
-                {state.mainUI.fragmentText}
-                {state.mainUI.gradingRevealed ? (
-                  <div>
-                    <RadioButtons
-                      label={'Fragment Understood?'}
-                      options={[
-                        {val: 'y', name: 'Yes'},
-                        {val: 'n', name: 'No'},
-                        {val: 'u', name: 'Unsure'},
-                      ]}
-                      val={state.mainUI.fragmentUnderstood}
-                      onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateFragmentUnderstood', val: newKey as FragmentUnderstood})}}
-                    />
-                    {state.mainUI.targetAtom ? (
-                      <>
+            case 'quiz':
+              return (
+                <>
+                  <div className="App-quiz-fragment-text">
+                    {(state.mainUI.gradingRevealed && state.mainUI.targetAtom) ? (
+                      <span dangerouslySetInnerHTML={{__html: state.mainUI.targetAtom.fragmentHighlightedHTML}}></span>
+                    ) : (
+                      <>{state.mainUI.fragmentText}</>
+                    )}
+                  </div>
+                  {state.mainUI.gradingRevealed ? (
+                    <div>
+                      {state.mainUI.targetAtom ? (
+                        <div className="App-quiz-space-above">
+                          <div>Target</div>
+                          <div className="App-quiz-target-text">{state.mainUI.targetAtom.searchString}</div>
+                        </div>
+                      ) : null}
+                      <div className="App-quiz-space-above">
                         <RadioButtons
-                          label={'Target Remembered?'}
+                          label={'Fragment Understood?'}
                           options={[
                             {val: 'y', name: 'Yes'},
                             {val: 'n', name: 'No'},
+                            {val: 'u', name: 'Unsure'},
                           ]}
-                          val={state.mainUI.targetAtom.remembered}
-                          onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateTargetAtomRemembered', val: newKey as AtomRemembered})}}
+                          val={state.mainUI.fragmentUnderstood}
+                          onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateFragmentUnderstood', val: newKey as FragmentUnderstood})}}
                         />
-                        <div>
-                          <button>Target Not In Fragment?</button>
-                        </div>
-                      </>
-                    ) : null}
-                    <div>
-                      <button onClick={() => {dispatch({type: 'quizSubmitGrading'})}} disabled={!stateCanSubmitGrading(state)}>Continue</button>
+                      </div>
+                      {state.mainUI.targetAtom ? (
+                        <>
+                          <div className="App-quiz-space-above">
+                            <RadioButtons
+                              label={'Target Remembered?'}
+                              options={[
+                                {val: 'y', name: 'Yes'},
+                                {val: 'n', name: 'No'},
+                              ]}
+                              val={state.mainUI.targetAtom.remembered}
+                              onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateTargetAtomRemembered', val: newKey as AtomRemembered})}}
+                            />
+                          </div>
+                          <div className="App-quiz-space-above">
+                            <div>Other</div>
+                            <div className="App-quiz-other-buttons">
+                              <button
+                                className={'App-chonky-button' + (state.mainUI.targetAtom.targetNotInFragment ? ' App-button-selected' : '')}
+                                onClick={() => {dispatch({type: 'quizToggleTargetNotInFragment'})}}
+                              >Target Not<br/>In Fragment</button>
+                            </div>
+                          </div>
+                        </>
+                      ) : null}
+                      <div className="App-quiz-big-space-above">
+                        <button className={'App-chonky-button' + (!stateCanSubmitGrading(state) ? ' App-hidden' : '')} onClick={() => {dispatch({type: 'quizSubmitGrading'})}}>Continue</button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div>
-                    <button onClick={() => {dispatch({type: 'quizRevealGrading'})}}>Continue</button>
-                  </div>
-                )}
-              </div>
-            );
+                  ) : (
+                    <div className="App-quiz-big-space-above">
+                      <button className="App-chonky-button" onClick={() => {dispatch({type: 'quizRevealGrading'})}}>Continue</button>
+                    </div>
+                  )}
+                </>
+              );
 
-          case 'nothingToQuiz':
-            return (
-              <div>
-                nothing due to review <button onClick={() => {dispatch({type: 'quizRefresh'})}}>Refresh</button>
-              </div>
-            );
+            case 'nothingToQuiz':
+              return (
+                <>
+                  <div>Nothing due to review</div>
+                  <div className="App-quiz-space-above"><button className="App-chonky-button" onClick={() => {dispatch({type: 'quizRefresh'})}}>Refresh</button></div>
+                </>
+              );
 
-          default:
-            throw new UnreachableCaseError(state.mainUI);
-        }
-      })()}
+            default:
+              throw new UnreachableCaseError(state.mainUI);
+          }
+        })()}
+      </div>
     </div>
   );
 }
