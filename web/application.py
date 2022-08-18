@@ -27,6 +27,8 @@ app.config['JSONIFY_PRETTYPRINT_REGULAR'] = True
 ES_HOST = os.getenv('ES_HOST', 'localhost')
 ES_BASE_URL = f'http://{ES_HOST}:9200'
 
+DEEPL_API_KEY = os.getenv('DEEPL_API_KEY')
+
 RESULTS_PER_PAGE = 25
 FRAGMENT_RESULTS_PER_PAGE = 100
 
@@ -331,3 +333,28 @@ def api_get_normal_fragments():
         })
 
     return jsonify(fragments)
+
+@app.route("/api/translate", methods=['POST'])
+def api_translate():
+    req = request.get_json()
+    text = req['text']
+
+    assert DEEPL_API_KEY, 'need DeepL API key'
+
+    t0 = time.time()
+    resp = requests.get('https://api-free.deepl.com/v2/translate', data={
+        'auth_key': DEEPL_API_KEY,
+        'source_lang': 'JA',
+        'target_lang': 'EN',
+        'split_sentences': '0',
+        'text': text,
+    })
+    dt = time.time() - t0
+    resp.raise_for_status()
+    print('deepl_request_time', f'{dt}', flush=True)
+
+    resp_body = resp.json()
+
+    return jsonify({
+        'translation': resp_body['translations'][0]['text'],
+    })

@@ -18,6 +18,7 @@ const LOCAL_STORAGE_KEY = 'massif-manifold-v1';
 
 // Globals set by Flask in index.html
 declare const MASSIF_URL_JA_FRAGMENT_SEARCH: string;
+declare const MASSIF_URL_API_TRANSLATE: string;
 
 interface Atom {
   readonly ss: string; // search string
@@ -35,6 +36,16 @@ interface QueueItem {
 
 type FragmentUnderstood = 'y' | 'n' | 'u';
 type AtomRemembered = 'y' | 'n';
+
+type FragmentTranslation =
+  {
+    type: 'none';
+  } | {
+    type: 'loading';
+  } | {
+    type: 'loaded';
+    translation: string;
+  };
 
 type AddWordPanelState = {
   readonly text: string;
@@ -54,6 +65,7 @@ interface ManifoldState {
     readonly mode: 'quiz';
     readonly gradingRevealed: boolean;
     readonly fragmentText: string;
+    readonly fragmentTranslation: FragmentTranslation;
     readonly fragmentUnderstood: null | FragmentUnderstood;
     readonly targetAtom: null | {
       readonly fragmentHighlightedHTML: string;
@@ -103,6 +115,12 @@ type ManifoldEvent =
     readonly type: 'quizSubmitGrading';
   } | {
     readonly type: 'quizRefresh';
+  } | {
+    readonly type: 'quizLoadFragmentTranslation';
+  } | {
+    readonly type: 'quizRcvdFragmentTranslation';
+    readonly fragmentText: string;
+    readonly translation: string;
   };
 
 type ManifoldEffect =
@@ -111,6 +129,9 @@ type ManifoldEffect =
   } | {
     readonly type: 'quizSearchForTargetCtxFragments';
     readonly atomId: string;
+  } | {
+    readonly type: 'quizTranslateFragment';
+    readonly fragmentText: string;
   };
 
 type ManifoldDispatch = React.Dispatch<ManifoldEvent>;
@@ -345,6 +366,7 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
           mode: 'quiz',
           gradingRevealed: false,
           fragmentText: randomFragment.text,
+          fragmentTranslation: {type: 'none'},
           fragmentUnderstood: null,
           targetAtom: {
             fragmentHighlightedHTML: randomFragment.highlighted_html,
@@ -451,6 +473,44 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
     case 'quizRefresh':
       invariant(state.mainUI.mode === 'nothingToQuiz');
       return updateStateCoreStats(updateStateToQuizNext(state, exec));
+
+    case 'quizLoadFragmentTranslation':
+      invariant(state.mainUI.mode === 'quiz');
+
+      exec({
+        type: 'quizTranslateFragment',
+        fragmentText: state.mainUI.fragmentText,
+      });
+
+      return {
+        ...state,
+        mainUI: {
+          ...state.mainUI,
+          fragmentTranslation: {
+            type: 'loading',
+          },
+        },
+      };
+
+    case 'quizRcvdFragmentTranslation':
+      // ignore event if it doesn't match current state
+      if (state.mainUI.mode !== 'quiz') {
+        return state;
+      }
+      if (event.fragmentText !== state.mainUI.fragmentText) {
+        return state;
+      }
+
+      return {
+        ...state,
+        mainUI: {
+          ...state.mainUI,
+          fragmentTranslation: {
+            type: 'loaded',
+            translation: event.translation,
+          },
+        },
+      };
   }
 }
 
@@ -497,6 +557,44 @@ const effectsMap: EffectsMap<ManifoldState, ManifoldEvent, ManifoldEffect> = {
         type: 'quizRcvdTargetCtxFragments',
         atomId: effect.atomId,
         results,
+      });
+    })();
+  },
+
+  quizTranslateFragment: (state, effect, dispatch) => {
+    (async () => {
+      let response: Response;
+      try {
+        response = await fetch(MASSIF_URL_API_TRANSLATE, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            text: effect.fragmentText,
+          }),
+        });
+      } catch {
+        console.error('quizTranslateFragment fetch failed');
+        // TODO: dispatch event
+        return;
+      }
+
+      if (!response.ok) {
+        console.error('quizTranslateFragment bad status');
+        // TODO: dispatch event
+        return;
+      }
+
+      const result = await response.json();
+      const translation = result.translation;
+      invariant(translation);
+
+      dispatch({
+        type: 'quizRcvdFragmentTranslation',
+        fragmentText: effect.fragmentText,
+        translation,
       });
     })();
   },
@@ -631,6 +729,27 @@ const App: React.FC = () => {
                           <div className="App-quiz-target-text">{state.mainUI.targetAtom.searchString}</div>
                         </div>
                       ) : null}
+                      <div className="App-quiz-space-above" style={{minHeight: '3em'}}>
+                        <div>Translation (DeepL 🤖)</div>
+                        <div>
+                          {(() => {
+                            const ft = state.mainUI.fragmentTranslation;
+                            switch (ft.type) {
+                              case 'none':
+                                return <button className="App-small-button" onClick={() => {dispatch({type: 'quizLoadFragmentTranslation'})}}>Load</button>
+
+                              case 'loading':
+                                return <>Loading...</>
+
+                              case 'loaded':
+                                return <>{ft.translation}</>
+
+                              default:
+                                throw new UnreachableCaseError(ft);
+                            }
+                          })()}
+                        </div>
+                      </div>
                       <div className="App-quiz-space-above">
                         <RadioButtons
                           label={'Fragment Understood?'}
