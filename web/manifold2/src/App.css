@@ -1,0 +1,95 @@
+.App {
+  margin: 0 auto;
+  max-width: 600px;
+  padding: 20px 10px;
+}
+
+.App-hidden {
+  visibility: hidden;
+}
+
+.App-chonky-button {
+  color: inherit;
+  box-shadow: inset 0px 1px 0px 0px #ffffff;
+	background-color: #ffffff;
+	border-radius: 4px;
+	border: 1px solid #aaa;
+	display: inline-block;
+	cursor: pointer;
+	font-family: inherit;
+	font-size: inherit;
+	padding: 0.5em 1em;
+	text-decoration: none;
+	text-shadow: 0px 1px 0px #ffffff;
+}
+/* .App-chonky-button:hover {
+} */
+.App-chonky-button:active {
+  position: relative;
+	top: 1px;
+}
+.App-chonky-button:disabled {
+  color: #aaa;
+  border-color: #ccc;
+}
+
+.App-small-button {
+  color: inherit;
+	border: 1px solid #aaa;
+	border-radius: 4px;
+	background-color: #ffffff;
+  padding: 2px 8px;
+}
+
+.App-StatusPanel {
+  display: flex;
+  padding: 0.5em;
+  background-color: #f4e1e1;
+}
+
+.App-button-selected {
+  background: #eec3c3;
+  box-shadow: none;
+}
+
+.App-StatusPanel-add-word {
+  margin-left: auto;
+}
+
+.App-AddWordPanel {
+  display: inline-block;
+}
+
+.App-AddWordPanel-word {
+  width: 10em;
+}
+
+.App-main-area {
+  text-align: center;
+  margin-top: 1em;
+}
+
+.App-quiz-fragment-text {
+  font-size: 2em;
+}
+
+.App-quiz-fragment-text em {
+  color: #a00;
+  font-style: normal;
+}
+
+.App-quiz-target-text {
+  font-size: 1.5em;
+}
+
+.App-quiz-space-above {
+  margin-top: 1em;
+}
+
+.App-quiz-big-space-above {
+  margin-top: 2em;
+}
+
+.App-quiz-other-buttons {
+  font-size: 0.75em;
+}

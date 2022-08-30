@@ -287,6 +287,25 @@ def ja_manifold_sub(name):
     return send_from_directory(MANIFOLD_BUILD_DIR, name)
 
 #
+# MANIFOLD2
+#
+MANIFOLD2_BUILD_DIR = 'manifold2/build'
+
+@app.route('/ja/manifold2')
+def ja_manifold2_root():
+    # NOTE: Instead of doing this:
+    # send_from_directory(MANIFOLD2_BUILD_DIR, 'index.html')
+    # we render this template, which is actually a symlink to manifold2/build/index.html,
+    # so that we don't have to deal with having two template directories.
+    # This could be an issue if there was accidentally anything that looked like a template
+    # substitution in the frontend code, but it works for now.
+    return render_template('manifold2_index.html')
+
+@app.route("/ja/manifold2/<path:name>")
+def ja_manifold2_sub(name):
+    return send_from_directory(MANIFOLD2_BUILD_DIR, name)
+
+#
 # API
 #
 

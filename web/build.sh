@@ -5,6 +5,7 @@ set -e
 (cd pathfinder && yarn build)
 (cd tanken && yarn build)
 (cd manifold && yarn build)
+(cd manifold2 && yarn build)
 
 #### build deployment artifact for Elastic Beanstalk
 # remove old build
@@ -16,5 +17,6 @@ find .ebextensions static templates | zip build.zip -@
 find pathfinder/build | zip build.zip -@
 find tanken/build | zip build.zip -@
 find manifold/build | zip build.zip -@
+find manifold2/build | zip build.zip -@
 # add common dir to zip, using flag to make it traverse symlink
 find -L common | zip build.zip -@
