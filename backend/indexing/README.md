@@ -2,7 +2,7 @@
 
 Current Elasticsearch index creation:
 ```
-curl -X PUT "localhost:9200/fragment_ja_20210708?pretty" -H 'Content-Type: application/json' -d'
+curl -X PUT "localhost:9200/fragment_ja_20220831?pretty" -H 'Content-Type: application/json' -d'
 {
   "settings": {
     "index": {
@@ -11,14 +11,11 @@ curl -X PUT "localhost:9200/fragment_ja_20210708?pretty" -H 'Content-Type: appli
     },
     "analysis": {
       "analyzer": {
-      "massif_ja_text": {
+        "massif_ja_text": {
           "type":"custom",
           "tokenizer": "sudachi_tokenizer",
           "filter": [
-            "keyword_repeat",
-            "sudachi_normalizedform",
-            "remove_duplicates",
-            "stop"
+            "sudachi_normalizedform"
           ]
         }
       }
@@ -91,7 +88,7 @@ curl -X POST "localhost:9200/_aliases?pretty" -H 'Content-Type: application/json
     { "remove" : { "index" : "*", "alias" : "source_ja" } },
     { "add" : {
       "indices" : [
-        "fragment_ja_20210708"
+        "fragment_ja_20220831"
       ],
       "alias" : "fragment_ja"
     } },
