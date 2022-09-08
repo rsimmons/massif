@@ -1,6 +1,5 @@
-import util from 'util';
 import { Token } from '../tokenization';
-import {buildTrie, findWordsInText, TrieWord} from '../wordTrie';
+import { buildTrie, findWordsInText, TrieWord } from '../wordTrie';
 
 interface Word extends TrieWord<Token> {
   readonly text: string;
