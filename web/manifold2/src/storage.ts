@@ -1,14 +1,16 @@
 import Dexie, { Table } from 'dexie';
-import { Atom, AtomStatus, DayStats } from './quizEngine';
+import { Word, WordStatus, DayStats, WordKnown } from './quizEngine';
 
 const DB_NAME = 'manifold';
 
-// This currently matches quizEngine Atom, but that may not always be the case
-interface DBAtom {
+// This currently matches quizEngine Word, but that may not always be the case
+interface DBWord {
   readonly id: number;
-  readonly spec: string;
-  readonly status: AtomStatus;
-  readonly reviewTime: number;
+  readonly text: string;
+  readonly tokens: ReadonlyArray<string>
+  readonly status: WordStatus;
+  readonly known: WordKnown;
+  readonly nextTime: number;
   readonly interval: number;
   readonly timeAdded: number;
   readonly notes: string;
@@ -20,7 +22,7 @@ interface DBDayStats {
 }
 
 class ManifoldDB extends Dexie {
-  atom!: Dexie.Table<DBAtom, number>;
+  word!: Dexie.Table<DBWord, number>;
   dayStats!: Dexie.Table<DBDayStats, number>;
 
   constructor() {
@@ -29,7 +31,7 @@ class ManifoldDB extends Dexie {
     // NOTE: Not all fields must be specified, only the ones to be indexed on.
     // And the first field is automatically the (unique) primary key.
     this.version(1).stores({
-      atom: '++id',
+      word: '++id',
       dayStats: 'dayNumber',
     });
   }
@@ -37,8 +39,8 @@ class ManifoldDB extends Dexie {
 
 const db = new ManifoldDB();
 
-export async function loadAllAtoms(): Promise<ReadonlyMap<number, Atom>> {
-  return new Map((await db.atom.toArray()).map(a => [a.id, a]));
+export async function loadAllWords(): Promise<ReadonlyMap<number, Word>> {
+  return new Map((await db.word.toArray()).map(a => [a.id, a]));
 }
 
 export async function loadDayStats(dayNumber: number): Promise<DayStats | undefined> {
