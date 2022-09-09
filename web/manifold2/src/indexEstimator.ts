@@ -18,9 +18,10 @@ import {invariant, cmp} from './util';
  * smoothly interpolate _between_ seen indexes). Tt's not clear to me that
  * assuming a logistic curve over indexes is warranted as a prior anyway.
  *
- * Very small data sets are likely to fail to find an index. It can be useful
- * to add two "dummy" elements, one known at an index below the lowest, and
- * one unknown at an index above the highest.
+ * Very small data sets are likely to fail to find an index. But if "dummy"
+ * elements are added, one known at an index below the lowest, and one unknown
+ * at an index above the highest, then the algorithm is guaranteed to find
+ * an index (see test for this).
  *
  * The algorithm is described in terms of "indexes", but it would work the same
  * for any independent variable even if negative or non-integer.

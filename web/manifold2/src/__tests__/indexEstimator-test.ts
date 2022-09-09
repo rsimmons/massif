@@ -171,6 +171,52 @@ test(FADE, () => {
   expect(indexRegression(data, 0.01)).toBe(3400);
 });
 
+// we don't care about the order, so we do least significant bits at start of array
+function intToBoolArr(n: number, bits: number): ReadonlyArray<boolean> {
+  const result: Array<boolean> = [];
+  for (let i = 0; i < bits; i++) {
+    result.push((n & (1 << i)) !== 0);
+  }
+  return result;
+}
+
+test('int to bool array helper works', () => {
+  expect(intToBoolArr(0, 4)).toEqual([false, false, false, false]);
+  expect(intToBoolArr(5, 4)).toEqual([true, false, true, false]);
+  expect(intToBoolArr(15, 4)).toEqual([true, true, true, true]);
+});
+
+function allBoolArrsUpToLen(maxLen: number): ReadonlyArray<ReadonlyArray<boolean>> {
+  const result: Array<ReadonlyArray<boolean>> = [];
+  for (let len = 1; len <= maxLen; len++) {
+    for (let n = 0; n < (1<<len); n++) {
+      result.push(intToBoolArr(n, len));
+    }
+  }
+  return result;
+}
+
+test('generating all bool arrays up to len', () => {
+  expect(allBoolArrsUpToLen(2)).toEqual([
+    [false],
+    [true],
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true],
+  ]);
+});
+
+test('all short sequences with dummies', () => {
+  for (const arr of allBoolArrsUpToLen(8)) {
+    const data: ReadonlyArray<[number, boolean]> = arr.map((b, i) => [100*(i+1), b]);
+    const dataWithDummies: ReadonlyArray<[number, boolean]> = [[0, true], ...data, [10000, false]];
+    expect(indexRegression(dataWithDummies, 0.01)).toBeDefined();
+    expect(indexRegression(dataWithDummies, 0.5)).toBeDefined();
+    expect(indexRegression(dataWithDummies, 0.99)).toBeDefined();
+  }
+});
+
 /**
  * The below doesn't work as an actual test, but can be used to manually play
  * around with parameters and see how the algorithm works with data provided
