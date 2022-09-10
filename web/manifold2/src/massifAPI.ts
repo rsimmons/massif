@@ -9,11 +9,13 @@ export class MassifAPIError extends Error {
 }
 
 // note that this is a subset of what's actually returned
-interface FragmentSearchResults {
-  readonly results: ReadonlyArray<{
-    readonly text: string;
-    readonly highlighted_html: string;
-  }>;
+export interface FragmentResult {
+  readonly text: string;
+  readonly highlighted_html: string;
+}
+
+export interface FragmentSearchResults {
+  readonly results: ReadonlyArray<FragmentResult>;
 }
 
 export async function searchFragments(query: string): Promise<FragmentSearchResults> {

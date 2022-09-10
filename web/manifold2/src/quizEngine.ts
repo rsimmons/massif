@@ -1,10 +1,28 @@
 import dayjs, { Dayjs } from 'dayjs'
-import { searchFragments } from './massifAPI';
 
+import pickIndex from './indexPicker';
+import { FragmentResult, searchFragments } from './massifAPI';
 import { loadAllWords, loadDayStats, storeDayStats } from './storage';
 import { invariant, randomChoice } from './util';
+import { addWordToTrie, createEmptyTrie, Trie, TrieWord } from './wordTrie';
+import { Token } from './tokenization';
+
+import WORD_ORDERING from './freqlist_drama_20k';
+import FILTERED_NORMALS_SET from './freqlist_filtered';
+
+// TODO: This works for now because the ordering only contains single-token words,
+// but later the map will need to be from concatenated-tokens to some record containing
+// the index and full "spec" (exact flag, embedding vector, etc.).
+const WORD_ORDERING_MAP: ReadonlyMap<string, number> = new Map(WORD_ORDERING.map((w, i) => [w, i]));
 
 const DAILY_INTRO_LIMIT = 10;
+const ORDERING_INTRO_KNOWN_PROB = 0.8;
+const TEST_WORD_IDXS = [
+  200,
+  500,
+  1000,
+  2000,
+];
 
 export interface QuizEngineConfig {
   // TODO: reference to Massif-API impl, so it can be mocked for testing
@@ -45,7 +63,7 @@ export enum WordKnown {
  * field and use a tagged union, but doing it this way makes it easier to
  * map to the local (relational) database.
  *
- * immutable
+ * mutable
  */
 export interface Word {
   // unique integer id
@@ -63,23 +81,23 @@ export interface Word {
   // tokenization of the text field. the details of this are complex
   readonly tokens: ReadonlyArray<string>;
 
-  readonly status: WordStatus;
+  status: WordStatus;
 
   // rough guess as to whether or not the user knows this word, whatever that means
-  readonly known: WordKnown;
+  known: WordKnown;
 
   // next time to review/present to user (usually). depending on status:
   // - Tracked: (ignored) 0
   // - Queued: unix time in integer seconds that it was _enqueued_
   // - Learning: unix time in integer seconds to be reviewed
   // - Reviewing: day number (days since 1970-01-01) to be reviewed
-  readonly nextTime: number;
+  nextTime: number;
 
   // SRS interval. depending on status:
   // - Tracked/Queued: (ignored) 0, or last interval in days if it used to be Reviewing
   // - Learning: seconds until next review
   // - Reviewing: days until next review
-  readonly interval: number;
+  interval: number;
 
   // time added to database. unix time in integer seconds
   readonly timeAdded: number;
@@ -220,14 +238,72 @@ function analyzeWords(state: QuizEngineState, time: Dayjs): WordsAnalysis {
   };
 }
 
+// subtypes of trie-related types
+type QToken = Token; // this can be a subtype of token
+interface QTrieWord extends TrieWord<QToken> {
+  // one of the two fields should be defined
+  readonly wordTracking: Word | undefined;
+  readonly orderingIdx: number | undefined;
+}
+type QWordTrie = Trie<Token, QTrieWord>;
+
+function buildWordTrie(state: QuizEngineState): QWordTrie {
+  const trie = createEmptyTrie<QToken, QTrieWord>();
+
+  // add tracked words, checking if each is in ordering, and keeping track of ordering indexes added
+  const orderingIdxsAdded: Set<number> = new Set();
+  for (const w of state.words.values()) {
+    // TODO: we can look this up by string now, but will later need to look up by tokens,
+    // and then filter by rest of spec, I think
+    const orderingIdx = WORD_ORDERING_MAP.get(w.text);
+
+    addWordToTrie(trie, {
+      toks: [{t: w.text}], // TODO: this will need to be updated once we store tokenizations
+      wordTracking: w,
+      orderingIdx,
+    });
+
+    if (orderingIdx !== undefined) {
+      orderingIdxsAdded.add(orderingIdx);
+    }
+  }
+
+  // add all words from ordering that were not already added
+  WORD_ORDERING.forEach((w, idx) => {
+    addWordToTrie(trie, {
+      toks: [{t: w}], // TODO: this will need to be updated once we store tokenizations
+      wordTracking: undefined,
+      orderingIdx: idx,
+    });
+  });
+
+  return trie;
+}
+
+async function getFragmentForTargetWord(state: QuizEngineState, targetWordText: string, trie: QWordTrie): Promise<FragmentResult> {
+  // a word text is currently the same as a Massif search query
+  const fragments = await searchFragments(targetWordText);
+
+  const fragment = randomChoice(fragments.results);
+
+  return fragment;
+}
+
+enum QuizKind {
+  SRS_REVIEW = 'srs_review', // reviewing a word in SRS
+  SRS_SUGGEST = 'srs_suggest', // suggesting they add a word to SRS if they don't know it
+  PROBE = 'probe', // just checking if they know the target word
+}
+
 // immutable
 export interface Quiz {
-  readonly kind:
-    'srs_review' | // reviewing a word in SRS
-    'srs_suggest' | // suggesting they add a word to SRS if they don't know it
-    'probe'; // just checking if they know the target word
+  readonly kind: QuizKind;
   readonly fragmentText: string;
   readonly targetWordText: string;
+}
+
+async function getQuizSuggestingOrderingIdx(state: QuizEngineState, targetIdx: number, trie: QWordTrie): Promise<Quiz> {
+  throw new Error('unimplemented');
 }
 
 // mutates given state and has side effects
@@ -240,6 +316,8 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
     };
   }
 
+  const trie = buildWordTrie(state);
+
   const wordsAn = analyzeWords(state, time);
 
   if (wordsAn.dueWords.length > 0) {
@@ -247,29 +325,88 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
 
     const targetWord = wordsAn.dueWords[0];
 
-    // an word text is currently the same as a Massif search query
-    const fragments = await searchFragments(targetWord.text);
-
-    const fragment = randomChoice(fragments.results);
+    const fragment = await getFragmentForTargetWord(state, targetWord.text, trie);
 
     return {
-      kind: 'srs_review',
+      kind: QuizKind.SRS_REVIEW,
       fragmentText: fragment.text,
       targetWordText: targetWord.text,
     };
-  } else {
-    if (state.todayStats.introCount < DAILY_INTRO_LIMIT) {
-      // find word to introduce
+  }
 
-      // TODO: first check words with Queued status
-      throw new Error('unimplemented');
+  if (state.todayStats.introCount < DAILY_INTRO_LIMIT) {
+    // introduce or suggest something
+
+    // TODO: first check words with Queued status. if so we can add to SRS right here, no need to "suggest"
+
+    // Pick a word from ordering to suggest
+
+    // Build compact data about known/unknown words by ordering index
+    const pickerData: Array<[number, boolean]> = [];
+    const pickerIdxSet: Set<number> = new Set(); // the set of idxs in pickerData
+    let lowestUnknownWordIdx: number | undefined = undefined;
+    for (const word of state.words.values()) {
+      let known: true | false | undefined = undefined;
+      if (word.status === WordStatus.Learning) {
+        known = true;
+      } else if (word.status === WordStatus.Reviewing) {
+        known = true;
+      } else if (word.status === WordStatus.Tracked) {
+        if (word.known === WordKnown.Yes) {
+          known = true;
+        } else if (word.known === WordKnown.No) {
+          known = false;
+        }
+      }
+
+      if (known !== undefined) {
+        // look up index in ordering
+        // TODO: we can look this up by string now, but will later need to look up by tokens,
+        // and then filter by rest of spec, I think
+        const orderingIdx = WORD_ORDERING_MAP.get(word.text);
+
+        if (orderingIdx !== undefined) {
+          pickerData.push([orderingIdx, known]);
+          pickerIdxSet.add(orderingIdx);
+
+          if (known === false) {
+            if ((lowestUnknownWordIdx === undefined) || (orderingIdx < lowestUnknownWordIdx)) {
+              lowestUnknownWordIdx = orderingIdx;
+            }
+          }
+        }
+      }
+    }
+
+    // Take our first several picks from a manually curated list, rather than
+    // using the algorithm, since the data will be sparse/empty.
+    if (pickerData.length < TEST_WORD_IDXS.length) {
+      for (const idx of TEST_WORD_IDXS) {
+        if (!pickerIdxSet.has(idx)) {
+          return getQuizSuggestingOrderingIdx(state, idx, trie);
+        }
+      }
+    }
+
+    const pickIdx = pickIndex(-1, WORD_ORDERING.length+1, pickerData, ORDERING_INTRO_KNOWN_PROB);
+
+    if ((lowestUnknownWordIdx !== undefined) && (lowestUnknownWordIdx <= pickIdx)) {
+      // NOTE: This is the index of the lowest word explicitly marked not-known, not just the lowest
+      // word that we are unsure about
+      return getQuizSuggestingOrderingIdx(state, lowestUnknownWordIdx, trie);
     } else {
+      // start at pickIdx and work upward, finding lowest index where word is:
+      // not_in_tracking OR (not_in_SRS AND (known is No or Maybe))
+      // Note: in loop above we can build set of indexes that should _not_ be suggested
       throw new Error('unimplemented');
     }
   }
+
+  // nothing due to review, and daily intro limit has been hit
+  throw new Error('unimplemented');
 }
 
 // mutates given state and has side effects
-export async function takeFeedback(state: QuizEngineState, time: Dayjs): Promise<void> {
+export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Quiz): Promise<void> {
   await storeDayStats(state.todayStats);
 }

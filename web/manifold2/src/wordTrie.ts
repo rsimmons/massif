@@ -21,7 +21,16 @@ interface TrieNode<WT extends Token, TW extends TrieWord<WT>> {
   readonly children: Map<string, TrieNode<WT, TW>>;
 }
 
-function addWordToTrie<WT extends Token, TW extends TrieWord<WT>>(trie: Trie<WT, TW>, word: TW) {
+export function createEmptyTrie<WT extends Token, TW extends TrieWord<WT>>(): Trie<WT, TW> {
+  return {
+    root: {
+      words: [],
+      children: new Map(),
+    },
+  };
+}
+
+export function addWordToTrie<WT extends Token, TW extends TrieWord<WT>>(trie: Trie<WT, TW>, word: TW) {
   let node = trie.root;
 
   for (let i = 0; i < word.toks.length; i++) {
@@ -43,12 +52,7 @@ function addWordToTrie<WT extends Token, TW extends TrieWord<WT>>(trie: Trie<WT,
 }
 
 export function buildTrie<WT extends Token, TW extends TrieWord<WT>>(words: ReadonlyArray<TW>): Trie<WT, TW> {
-  const trie = {
-    root: {
-      words: [],
-      children: new Map(),
-    },
-  };
+  const trie = createEmptyTrie<WT, TW>();
 
   for (const word of words) {
     addWordToTrie(trie, word);
