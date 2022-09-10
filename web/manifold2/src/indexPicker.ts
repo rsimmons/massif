@@ -2,13 +2,20 @@ import { assert } from 'console';
 import {invariant, cmp} from './util';
 
 /**
- * This function implements an algorithm that is used for estimating a user's
- * knowledge of word that we haven't tested them on yet. It assumes that we
+ * This function implements an algorithm that is used for finding a word to
+ * test a user on based on their knowledge of other words. It assumes that we
  * have tested them on words in an ordering that goes from easy/common at
- * low indexes to hard/rare at higher indexes. It takes as input an array
- * of [index, doesUserKnow], and a target probability of knowing, and returns
- * an index at which they should have approximately that probability of
- * knowing another (unseen) word.
+ * low indexes to hard/rare at higher indexes. It takes as input:
+ * - a "low" index that is lower than any in the data array
+ * - a "high" index that is higher than any in the data array
+ * - an array of [index, doesUserKnow]
+ * - a target probability of knowing
+ * It returns an index at which they should have approximately the given
+ * probability of knowing another (unseen) word. It makes an effort to pick
+ * an index that is at the midpoint of empty ranges between indexes.
+ * The given low/high indexes are used in cases where we want to pick an index
+ * below/above any of those in the given data points, it lets us know the
+ * min/max allowed indexes.
  *
  * Another approach to this would be binary logisitc regression. I found that
  * logistic regression had problems convering when the data was sparse or
@@ -18,19 +25,16 @@ import {invariant, cmp} from './util';
  * smoothly interpolate _between_ seen indexes). Tt's not clear to me that
  * assuming a logistic curve over indexes is warranted as a prior anyway.
  *
- * Very small data sets are likely to fail to find an index. But if "dummy"
- * elements are added, one known at an index below the lowest, and one unknown
- * at an index above the highest, then the algorithm is guaranteed to find
- * an index (see test for this).
- *
  * The algorithm is described in terms of "indexes", but it would work the same
  * for any independent variable even if negative or non-integer.
  */
 
-export default function indexRegression(
+export default function pickIndex(
+  lowIndex: number,
+  highIndex: number,
   data: ReadonlyArray<[number, boolean]>, // array of [index, known]
   probability: number, // probability of knowing we want to find index for
-): number | undefined { // returns the estimated index or undefined if can't be found
+): number { // returns the estimated index
   /**
    * For every point-between-indexes, we can compute what fraction below that
    * point are known (out of the total known and not-known), and what fraction
@@ -50,39 +54,45 @@ export default function indexRegression(
    * data points, which generally will shift the result index lower.
    */
 
-  if (data.length === 0) {
-    return undefined;
-  }
-
   // sort by index
   const sortedData = [...data];
   sortedData.sort(([idxA, ], [idxB, ]) => idxA - idxB);
+
+  // sanity check that data indexes are inside low and high
+  if (sortedData.length > 0) {
+    invariant(sortedData[0][0] > lowIndex);
+    invariant(sortedData[sortedData.length-1][0] < highIndex);
+  }
+
+  // Add dummy/padding elements to ensure algorithm succeeds and handle edges better
+  const paddedData: ReadonlyArray<[number, boolean]> = [[lowIndex, true], ...sortedData, [highIndex, false]];
 
   assert((probability > 0) && (probability < 1));
   const unknownWeight = probability/(1 - probability);
 
   // do first pass to find total known count
   let countKnown = 0;
-  for (const [, known] of sortedData) {
+  for (const [, known] of paddedData) {
     if (known) {
       countKnown++;
     }
   }
-  const countTotal = sortedData.length;
+  const countTotal = paddedData.length;
 
   // do the main pass where we try to find crossover point
   let knownBelow = 0;
   let prevCmp = undefined;
-  const crossIndexes: Array<number> = [];
+  let prevFracs: undefined | [number, number | undefined] = undefined;
+  const resultIndexes: Array<number> = [];
   // console.log({
-  //   sortedData,
+  //   paddedData,
   //   countKnown,
   //   countTotal,
   //   unknownWeight,
   // });
 
   for (let i = 0; i < countTotal; i++) {
-    const [index, known] = sortedData[i];
+    const [index, known] = paddedData[i];
 
     // think of a point having just moved from before index i to after index i
 
@@ -121,24 +131,37 @@ export default function indexRegression(
     // });
 
     // did the fraction-curves cross in the "right"/expected direction?
-    if (
-      ((prevCmp === 1) && (curCmp === -1)) ||
-      ((prevCmp === 1) && (curCmp === 0)) ||
-      ((prevCmp === 0) && (curCmp === -1))
-    ) {
-      // console.log('added to indexes');
-      crossIndexes.push(index);
+    if (curCmp === 0) {
+      invariant(i < (countTotal-1));
+      const nextIndex = paddedData[i+1][0];
+      resultIndexes.push(Math.round(0.5*(index + nextIndex)));
+    } else if ((prevCmp === 1) && (curCmp === -1)) {
+
+      invariant(prevFracs !== undefined);
+      invariant(prevFracs[1] !== undefined);
+      invariant(fracUnknownAbove !== undefined);
+      const midFKB = 0.5*(fracKnownBelow + prevFracs[0]);
+      const midFUA = 0.5*(fracUnknownAbove + prevFracs[1]);
+      if (midFKB > midFUA) {
+        invariant(i < (countTotal-1));
+        const nextIndex = paddedData[i+1][0];
+        resultIndexes.push(Math.round(0.5*(index + nextIndex)));
+      } else if (midFKB < midFUA) {
+        invariant(i > 0);
+        const prevIndex = paddedData[i-1][0];
+        resultIndexes.push(Math.round(0.5*(index + prevIndex)));
+      } else {
+        resultIndexes.push(index);
+      }
     }
 
     prevCmp = curCmp;
+    prevFracs = [fracKnownBelow, fracUnknownAbove];
   }
 
+  invariant(resultIndexes.length > 0);
   // console.log({
-  //   crossIndexes,
+  //   resultIndexes,
   // });
-  if (crossIndexes.length === 0) {
-    return undefined;
-  } else {
-    return Math.floor(0.5*(crossIndexes[0] + crossIndexes[crossIndexes.length-1]));
-  }
+  return Math.round(0.5*(resultIndexes[0] + resultIndexes[resultIndexes.length-1]));
 }

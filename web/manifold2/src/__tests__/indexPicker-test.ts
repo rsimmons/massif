@@ -1,86 +1,85 @@
-import indexRegression from '../indexEstimator';
+import pickIndex from '../indexPicker';
 
 test('empty data', () => {
-  expect(indexRegression([], 0.5)).toBe(undefined);
+  expect(pickIndex(0, 1000, [], 0.5)).toBe(500);
+});
+
+test('F', () => {
+  expect(pickIndex(0, 1000, [
+    [100, false],
+  ], 0.5)).toBe(50);
+});
+
+test('T', () => {
+  expect(pickIndex(0, 1000, [
+    [100, true],
+  ], 0.5)).toBe(550);
+});
+
+test('FF', () => {
+  expect(pickIndex(0, 1000, [
+    [100, false],
+    [200, false],
+  ], 0.5)).toBe(50);
 });
 
 test('TF', () => {
-  expect(indexRegression([
+  expect(pickIndex(0, 1000, [
     [100, true],
     [200, false],
-  ], 0.5)).toBe(undefined); // this is debatable but the logic is consistent
+  ], 0.5)).toBe(150);
+});
+
+test('TT', () => {
+  expect(pickIndex(0, 1000, [
+    [100, true],
+    [200, true],
+  ], 0.5)).toBe(600);
 });
 
 test('TTFF', () => {
-  expect(indexRegression([
+  expect(pickIndex(0, 1000, [
     [50, true],
     [200, true],
     [300, false],
-    [1000, false],
+    [900, false],
   ], 0.5)).toBe(250);
 });
 
 test('TTF', () => {
-  expect(indexRegression([
+  expect(pickIndex(0, 1000, [
     [100, true],
     [600, true],
     [800, false],
-  ], 0.5)).toBe(600);
+  ], 0.5)).toBe(700);
 });
 
 test('TFF', () => {
-  expect(indexRegression([
+  expect(pickIndex(0, 1000, [
     [100, true],
     [300, false],
-    [1000, false],
-  ], 0.5)).toBe(300);
-});
-
-test('T', () => {
-  expect(indexRegression([
-    [100, true],
-  ], 0.5)).toBe(undefined);
-});
-
-test('TT', () => {
-  expect(indexRegression([
-    [100, true],
-    [200, true],
-  ], 0.5)).toBe(undefined);
-});
-
-test('F', () => {
-  expect(indexRegression([
-    [100, false],
-  ], 0.5)).toBe(undefined);
-});
-
-test('FF', () => {
-  expect(indexRegression([
-    [100, false],
-    [200, false],
-  ], 0.5)).toBe(undefined);
+    [900, false],
+  ], 0.5)).toBe(200);
 });
 
 test('FT', () => {
-  expect(indexRegression([
+  expect(pickIndex(0, 1000, [
     [100, false],
     [200, true],
-  ], 0.5)).toBe(undefined);
+  ], 0.5)).toBe(150);
 });
 
 test('FFTT', () => {
-  expect(indexRegression([
+  expect(pickIndex(0, 1000, [
     [100, false],
     [200, false],
     [300, true],
     [400, true],
-  ], 0.5)).toBe(undefined);
+  ], 0.5)).toBe(250);
 });
 
-
 test('TTFFFFFF', () => {
-  expect(indexRegression([
+  expect(pickIndex(0, 1000, [
     [100, true],
     [200, true],
     [300, false],
@@ -93,7 +92,7 @@ test('TTFFFFFF', () => {
 });
 
 test('TTTTTTFF', () => {
-  expect(indexRegression([
+  expect(pickIndex(0, 1000, [
     [100, true],
     [200, true],
     [300, true],
@@ -106,7 +105,7 @@ test('TTTTTTFF', () => {
 });
 
 test('TFTF', () => {
-  expect(indexRegression([
+  expect(pickIndex(0, 1000, [
     [100, true],
     [400, false],
     [500, true],
@@ -114,61 +113,56 @@ test('TFTF', () => {
   ], 0.5)).toBe(450);
 });
 
-test('TFFFTTTF', () => {
-  expect(indexRegression([
-    [100, true],
+test('FFT', () => {
+  const data: Array<[number, boolean]> = [
+    [400, false], // across this item the curves cross
     [500, false],
-    [600, false],
-    [700, false],
-    [1000, true],
-    [1100, true],
-    [1300, true],
-    [2000, false],
-  ], 0.5)).toBe(900); // midpoint of first false and last true, not the middle transition from false to true
+    [600, true],
+  ];
+
+  // Because the curves cross across an item (cmp from 1 to -1), we take the
+  // midpoint with prev/next item depending on whether the cross point is
+  // "above" or "below" the index. Changing the probability will bias this.
+  expect(pickIndex(0, 1000, data, 0.5)).toBe(450);
+  expect(pickIndex(0, 1000, data, 0.7)).toBe(200);
+
+  // With a low enough probability, it will bias towards taking the midpoint
+  // of the last data and the highIndex
+  expect(pickIndex(0, 1000, data, 0.1)).toBe(800);
+});
+
+test('FFFTTT', () => {
+  expect(pickIndex(0, 1000, [
+    [200, false],
+    // here it's 50% known below and 50% unknown above (incl. dummies)
+    [400, false],
+    [500, false],
+    // here it's 50% known below and 50% unknown above (incl. dummies)
+    [600, true],
+    [700, true],
+    // here it's 50% known below and 50% unknown above (incl. dummies)
+    [800, true],
+  ], 0.5)).toBe(525); // midpoint of the min/max of the midpoint above: [300, 750]
 });
 
 test('TTTFTFFF', () => {
   const data: Array<[number, boolean]> = [
     [100, true],
     [500, true],
-    [600, true], // midpoint of this
+    [600, true],
     [700, false],
+    // here it's 80% known below and 80% unknown above (incl. dummies)
     [1000, true],
-    [1100, false], // and this
+    [1100, false],
     [1300, false],
-    [2000, false],
+    [1900, false],
   ];
 
-  expect(indexRegression(data, 0.5)).toBe(850);
+  expect(pickIndex(0, 2000, data, 0.5)).toBe(850);
 
   // It should work regardless of order
   data.reverse();
-  expect(indexRegression(data, 0.5)).toBe(850);
-});
-
-test('FFTTTT', () => {
-  expect(indexRegression([
-    [100, false],
-    [200, false],
-    [300, true],
-    [400, true],
-    [500, true],
-    [600, true],
-  ], 0.5)).toBe(undefined);
-});
-
-const FADE = 'TTTTTTTTFTTTFFTTFFTFTFFTFFFFTFFFFTFFFFFFF';
-const Fs = 'FFFFFFFFFFFFFFFFFF';
-test(FADE, () => {
-  const strToData = (s: string): ReadonlyArray<[number, boolean]> => [...s].map((c, i) => [100*(i+1), c === 'T'])
-  const data = strToData(FADE);
-  expect(indexRegression(data, 0.99)).toBe(900);
-  expect(indexRegression(data, 0.01)).toBe(3400);
-
-  // extra unknowns at end should not matter
-  const dataExtraFs = strToData(FADE + Fs);
-  expect(indexRegression(data, 0.99)).toBe(900);
-  expect(indexRegression(data, 0.01)).toBe(3400);
+  expect(pickIndex(0, 2000, data, 0.5)).toBe(850);
 });
 
 // we don't care about the order, so we do least significant bits at start of array
@@ -210,10 +204,11 @@ test('generating all bool arrays up to len', () => {
 test('all short sequences with dummies', () => {
   for (const arr of allBoolArrsUpToLen(8)) {
     const data: ReadonlyArray<[number, boolean]> = arr.map((b, i) => [100*(i+1), b]);
-    const dataWithDummies: ReadonlyArray<[number, boolean]> = [[0, true], ...data, [10000, false]];
-    expect(indexRegression(dataWithDummies, 0.01)).toBeDefined();
-    expect(indexRegression(dataWithDummies, 0.5)).toBeDefined();
-    expect(indexRegression(dataWithDummies, 0.99)).toBeDefined();
+    expect(pickIndex(0, 10000, data, 0.001)).toBeDefined();
+    expect(pickIndex(0, 10000, data, 0.2)).toBeDefined();
+    expect(pickIndex(0, 10000, data, 0.5)).toBeDefined();
+    expect(pickIndex(0, 10000, data, 0.8)).toBeDefined();
+    expect(pickIndex(0, 10000, data, 0.999)).toBeDefined();
   }
 });
 
@@ -233,12 +228,12 @@ test('with random logistic data', () => {
   const RATE = 1/WIDTH;
 
   const INDEX_PROB = 0.05;
-  const MIN_INDEX = 1;
+  const MIN_INDEX = 0;
   const MAX_INDEX = 5000;
   const data: Array<[number, boolean]> = [];
 
   // do it this way instead of picking random indexes to avoid dupes
-  for (let index = MIN_INDEX; index <= MAX_INDEX; index++) {
+  for (let index = MIN_INDEX+1; index < MAX_INDEX; index++) {
     if (Math.random() < INDEX_PROB) {
       data.push([
         index,
@@ -247,11 +242,7 @@ test('with random logistic data', () => {
     }
   }
 
-  // add dummy elements to avoid failures
-  data.push([0, true]);
-  data.push([MAX_INDEX+1, false]);
-
-  const result = indexRegression(data, 0.9);
+  const result = pickIndex(MIN_INDEX, MAX_INDEX, data, 0.9);
   console.log({
     dataPoints: data.length,
     result,
