@@ -176,6 +176,29 @@ def ja_get_morphemes_reading(morphemes):
 def ja_get_text_morphemes(text):
     return tokenizer_obj.tokenize(text, tokenizer.Tokenizer.SplitMode.B)
 
+def ja_get_text_tokenization(text):
+    morphemes = ja_get_text_morphemes(text)
+
+    token_runs = []
+    cur_run = []
+    for m in morphemes:
+        if ja_ignore_morpheme(m):
+            # ends a contiguous run
+            if cur_run:
+                token_runs.append(cur_run)
+            cur_run = []
+        else:
+            normal = m.normalized_form()
+            cur_run.append({
+                't': normal,
+                'b': m.begin(),
+                'e': m.end(),
+            })
+    if cur_run:
+        token_runs.append(cur_run)
+
+    return token_runs
+
 if __name__ == '__main__':
     TEST_READING_FRAGMENTS = [
         ('?', '?'),
@@ -239,5 +262,8 @@ if __name__ == '__main__':
         repetitive = ja_is_repetitive(frag, morphemes)
         assert repetitive == target_repetitive, (repr(repetitive) + ' vs ' + repr(target_repetitive))
     print()
+
+    print('TESTING TOKENIZATION')
+    print(ja_get_text_tokenization('その口ぶりからすると、あなたは知っているようですね。'))
 
     print('ALL GOOD')

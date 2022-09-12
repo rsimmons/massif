@@ -7,7 +7,7 @@ from flask import Flask, request, render_template, redirect, url_for, escape, se
 from flask_cors import CORS
 import requests
 
-from common.ja import ja_get_text_morphemes, ja_get_morphemes_normal_stats
+from common.ja import ja_get_text_morphemes, ja_get_morphemes_normal_stats, ja_get_text_tokenization
 
 app = Flask(__name__)
 
@@ -72,8 +72,9 @@ def format_time(t):
 def ja_fsearch():
     query = request.args.get('q', '')
     response_format = request.args.get('fmt', 'html')
+    include_tokens = request.args.get('toks') is not None
 
-    print('query', json.dumps({'query': query, 'format': response_format}, sort_keys=True, ensure_ascii=True), flush=True)
+    print('query', json.dumps({'query': query, 'format': response_format, 'tokens': include_tokens}, sort_keys=True, ensure_ascii=True), flush=True)
 
     # PARSE QUERY
     phrases = query.split()
@@ -206,6 +207,9 @@ def ja_fsearch():
         xhit['other_count'] = source_info['total_hits'] - 1
 
         json_xhit['source_count'] = source_info['total_hits']
+
+        if include_tokens:
+            json_xhit['tokens'] = ja_get_text_tokenization(json_xhit['text'])
 
         # Uncomment this to add back in tags display
         # source_tags = source_record['tags']
