@@ -30,7 +30,8 @@ ES_BASE_URL = f'http://{ES_HOST}:9200'
 DEEPL_API_KEY = os.getenv('DEEPL_API_KEY')
 
 RESULTS_PER_PAGE = 25
-FRAGMENT_RESULTS_PER_PAGE = 100
+DEFAULT_FRAGMENT_RESULTS_PER_PAGE = 100
+MAX_FRAGMENT_RESULTS_PER_PAGE = 10000
 
 FRAGMENT_INDEX = 'fragment_ja'
 SOURCE_INDEX = 'source_ja'
@@ -73,8 +74,9 @@ def ja_fsearch():
     query = request.args.get('q', '')
     response_format = request.args.get('fmt', 'html')
     include_tokens = request.args.get('toks') is not None
+    max_results = min(int(request.args.get('maxres', DEFAULT_FRAGMENT_RESULTS_PER_PAGE)), MAX_FRAGMENT_RESULTS_PER_PAGE)
 
-    print('query', json.dumps({'query': query, 'format': response_format, 'tokens': include_tokens}, sort_keys=True, ensure_ascii=True), flush=True)
+    print('query', json.dumps({'query': query, 'format': response_format, 'tokens': include_tokens, 'max_results': max_results}, sort_keys=True, ensure_ascii=True), flush=True)
 
     # PARSE QUERY
     phrases = query.split()
@@ -120,7 +122,7 @@ def ja_fsearch():
                 },
             },
         },
-        'size': FRAGMENT_RESULTS_PER_PAGE,
+        'size': max_results,
     })
     dt = time.time() - t0
     main_resp.raise_for_status()
@@ -141,8 +143,8 @@ def ja_fsearch():
     else:
         assert False
     hitcount_str = hitcount_qual + str(hitcount_value)
-    if hitcount_value > FRAGMENT_RESULTS_PER_PAGE:
-        results['count_str'] = f'first {FRAGMENT_RESULTS_PER_PAGE} of {hitcount_str} unique matching sentences'
+    if hitcount_value > max_results:
+        results['count_str'] = f'first {max_results} of {hitcount_str} unique matching sentences'
     else:
         results['count_str'] = f'{hitcount_str}  unique matching sentences'
 
