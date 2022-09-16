@@ -1,4 +1,3 @@
-import { assert } from 'console';
 import {invariant, cmp} from './util';
 
 /**
@@ -67,7 +66,7 @@ export default function pickIndex(
   // Add dummy/padding elements to ensure algorithm succeeds and handle edges better
   const paddedData: ReadonlyArray<[number, boolean]> = [[lowIndex, true], ...sortedData, [highIndex, false]];
 
-  assert((probability > 0) && (probability < 1));
+  invariant((probability > 0) && (probability < 1));
   const unknownWeight = probability/(1 - probability);
 
   // do first pass to find total known count
