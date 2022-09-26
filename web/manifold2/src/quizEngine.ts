@@ -32,7 +32,6 @@ WORD_ORDERING.forEach((w, i) => {
 });
 
 const DAILY_INTRO_LIMIT = 10;
-const ORDERING_INTRO_KNOWN_PROB = 0.8;
 
 const LEARNING_STEPS = [1*60, 10*60];
 const GRADUATING_INTERVAL = 18*60*60;
@@ -262,36 +261,6 @@ function analyzeWords(state: QuizEngineState, time: Dayjs): WordsAnalysis {
     timeUntilNextLearning,
   };
 }
-
-/*
-type WordRef =
-  {
-    readonly kind: 'tracked';
-    readonly trackedWord: TrackedWord;
-  } | {
-    readonly kind: 'ordering';
-    readonly orderingIdx: number;
-  };
-
-function wordRefsAreSame(a: WordRef, b: WordRef): boolean {
-  if (a.kind === 'tracked') {
-    return (b.kind === 'tracked') && (a.trackedWord === b.trackedWord);
-  } else if (a.kind === 'ordering') {
-    return (b.kind === 'ordering') && (a.orderingIdx === b.orderingIdx);
-  }
-  invariant(false);
-}
-
-function getWordRefDisplayText(wordRef: WordRef): string {
-  switch (wordRef.kind) {
-    case 'tracked':
-      return wordRef.trackedWord.spec;
-
-    case 'ordering':
-      return WORD_ORDERING[wordRef.orderingIdx];
-  }
-}
-*/
 
 // subtypes of trie-related types
 type WToken = Token; // token type used in words. this could be a subtype of Token
@@ -575,27 +544,21 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
 
     // Pick a word from ordering to suggest
 
-    throw new Error('unimplemented');
-    /*
-    const pickIdx = pickIndex(-1, WORD_ORDERING.length+1, pickerData, ORDERING_INTRO_KNOWN_PROB);
-    logInfo(`picking algo gave index ${pickIdx} around which to suggest`);
-
-    if ((lowestUnknownWordIdx !== undefined) && (lowestUnknownWordIdx <= pickIdx)) {
+    if ((lowestUnknownWordIdx !== undefined) && (lowestUnknownWordIdx <= probablyKnownIdx)) {
       // NOTE: This is the index of the lowest word explicitly marked not-known, not just the lowest
       // word that we are unsure about
-      logInfo(`found tracked-as-not-known word below pick-index at index ${lowestUnknownWordIdx} to suggest`);
+      logInfo(`found tracked-as-not-known word below the probably-known index (${probablyKnownIdx}) at index ${lowestUnknownWordIdx} to suggest`);
       return getQuizForOrderingIdx(state, QuizKind.SUGGEST_SRS, lowestUnknownWordIdx, trie);
     } else {
-      // word upward from pickIdx until we find an acceptable word to suggest
-      for (let idx = pickIdx; idx < WORD_ORDERING.length; idx++) {
+      // work upward from probablyKnownIdx until we find an acceptable word to suggest
+      for (let idx = probablyKnownIdx; idx < WORD_ORDERING.length; idx++) {
         if (!dontSuggestWordIdxs.has(idx)) {
-          logInfo(`worked up from pick-index and found acceptable word at index ${idx} to suggest`);
+          logInfo(`worked up from probably-known index and found acceptable word at index ${idx} to suggest`);
           return getQuizForOrderingIdx(state, QuizKind.SUGGEST_SRS, idx, trie);
         }
       }
       throw new Error('could not find any word in ordering to suggest');
     }
-    */
   }
 
   // nothing due to review, and daily intro limit has been hit
@@ -647,29 +610,6 @@ function getOrCreateWordTracking(state: QuizEngineState, time: Dayjs, tword: Tok
 
 // mutates given state and has side effects
 export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Quiz, feedback: Feedback): Promise<void> {
-  /*
-  const addOrderingIdxToTracked = (oIdx: number, known: WordKnown): TrackedWord => {
-    const newWordId = state.nextWordId;
-    const newTW: TrackedWord = {
-      id: newWordId,
-
-      // TODO: when ordering has multi-token words, these will be different
-      spec: WORD_ORDERING[oIdx],
-      tokens: WORD_ORDERING[oIdx],
-
-      status: WordStatus.Tracked,
-      known,
-      nextTime: 0,
-      interval: 0,
-      timeAdded: time.unix(),
-      notes: '',
-    };
-    state.words.set(newWordId, newTW);
-    state.nextWordId++;
-    return newTW;
-  };
-  */
-
   logInfo(`took feedback of kind ${feedback.kind}`);
 
   // TODO: if there was an intro, update daily intro count
