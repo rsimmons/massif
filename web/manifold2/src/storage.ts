@@ -1,13 +1,13 @@
 import Dexie, { Table } from 'dexie';
-import { Word, WordStatus, DayStats, WordKnown } from './quizEngine';
+import { TrackedWord, WordStatus, DayStats, WordKnown } from './quizEngine';
 
 const DB_NAME = 'manifold';
 
-// This currently matches quizEngine Word, but that may not always be the case
+// This currently matches quizEngine TrackedWord, but that may not always be the case
 interface DBWord {
   readonly id: number;
-  readonly text: string;
-  readonly tokens: ReadonlyArray<string>
+  readonly spec: string;
+  readonly tokens: string;
   readonly status: WordStatus;
   readonly known: WordKnown;
   readonly nextTime: number;
@@ -39,7 +39,7 @@ class ManifoldDB extends Dexie {
 
 const db = new ManifoldDB();
 
-export async function loadAllWords(): Promise<ReadonlyMap<number, Word>> {
+export async function loadAllWords(): Promise<Map<number, TrackedWord>> {
   return new Map((await db.word.toArray()).map(a => [a.id, a]));
 }
 

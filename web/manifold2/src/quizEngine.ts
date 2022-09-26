@@ -1,28 +1,51 @@
 import dayjs, { Dayjs } from 'dayjs'
 
-import pickIndex from './indexPicker';
 import { FragmentResult, searchFragments } from './massifAPI';
 import { loadAllWords, loadDayStats, storeDayStats } from './storage';
 import { invariant, randomChoice } from './util';
-import { addWordToTrie, createEmptyTrie, Trie, TrieWord } from './wordTrie';
-import { Token } from './tokenization';
+import { addWordToTrie, createEmptyTrie, findWordsInText, Trie, TrieWord } from './wordTrie';
+import { ContigTokenization, Token } from './tokenization';
+import { addWordToWordIndex, createEmptyWordIndex, getWordFromWordIndex, TokenizedWord, tokenizedWordsAreSame, WordIndex } from './word';
+import FREQ_LIST from './freqlist_drama_20k';
+import { findXGivenProb, rescaleAndFit } from './logreg';
+// import FILTERED_NORMALS_SET from './freqlist_filtered';
 
-import WORD_ORDERING from './freqlist_drama_20k';
-import FILTERED_NORMALS_SET from './freqlist_filtered';
+const FURTHER_FILTERED_WORDS = new Set([
+  'い',
+]);
+const WORD_ORDERING = FREQ_LIST.filter(w => !FURTHER_FILTERED_WORDS.has(w));
 
-// TODO: This works for now because the ordering only contains single-token words,
-// but later the map will need to be from concatenated-tokens to some record containing
-// the index and full "spec" (exact flag, embedding vector, etc.).
-const WORD_ORDERING_MAP: ReadonlyMap<string, number> = new Map(WORD_ORDERING.map((w, i) => [w, i]));
+// create index of the word ordering.
+// the type-parameter is a number, the index into the array (i.e. word rank)
+const wordOrderingIndex = createEmptyWordIndex<number>();
+WORD_ORDERING.forEach((w, i) => {
+  addWordToWordIndex(
+    wordOrderingIndex,
+    {
+      // TODO: This works for now because the ordering only contains single-token words,
+      // but later we will need to have them tokenized
+      spec: w,
+      tokens: w,
+    },
+    i,
+  );
+});
 
 const DAILY_INTRO_LIMIT = 10;
 const ORDERING_INTRO_KNOWN_PROB = 0.8;
-const TEST_WORD_IDXS = [
-  200,
-  500,
-  1000,
-  2000,
-];
+
+const LEARNING_STEPS = [1*60, 10*60];
+const GRADUATING_INTERVAL = 18*60*60;
+const SUCCESS_MULT = 2.0;
+const FAIL_EXP = 0.5;
+const JITTER = 0.1; // as proportion of new interval after adjustment
+
+const INITIAL_INTERVAL = LEARNING_STEPS[0];
+const LAST_LEARNING_INTERVAL = LEARNING_STEPS[LEARNING_STEPS.length - 1];
+
+function logInfo(msg: string): void {
+  console.log(msg);
+}
 
 export interface QuizEngineConfig {
   // TODO: reference to Massif-API impl, so it can be mocked for testing
@@ -56,7 +79,7 @@ export enum WordKnown {
 }
 
 /**
- * We call this a "Word" for simplicity but it may be a multi-word phrase,
+ * We call this a "TrackedWord" for simplicity but it may be a multi-word phrase,
  * or in the future perhaps even a grammar pattern.
  *
  * Normally I would not have field interpretations vary based on the status
@@ -65,21 +88,9 @@ export enum WordKnown {
  *
  * mutable
  */
-export interface Word {
+export interface TrackedWord extends TokenizedWord {
   // unique integer id
   readonly id: number;
-
-  // In the simplest case, this will just be the text of the word in its
-  // normalized (dictionary) form, e.g. '食べる'. But this could also be
-  // a multi-word phrase like '表情を浮かべる'.
-  // TODO: We may also a quoted exact text like '"あろう"', or make that a
-  // separate flag?
-  // Currently this is identical to a Massif search string, but this might
-  // not always be the case.
-  readonly text: string;
-
-  // tokenization of the text field. the details of this are complex
-  readonly tokens: ReadonlyArray<string>;
 
   status: WordStatus;
 
@@ -124,7 +135,12 @@ export interface QuizEngineState {
   readonly config: QuizEngineConfig;
 
   // key is integer word id
-  readonly words: ReadonlyMap<number, Word>;
+  readonly words: Map<number, TrackedWord>;
+
+  readonly wordIndex: WordIndex<TrackedWord>;
+
+  // id (sequential, numeric) for the next word we add
+  nextWordId: number;
 
   // stats about the current day
   todayStats: DayStats;
@@ -156,6 +172,13 @@ function timeToLogicalDayNum(time: Dayjs): number {
 export async function initState(config: QuizEngineConfig, time: Dayjs): Promise<QuizEngineState> {
   const words = await loadAllWords();
 
+  const wordIndex = createEmptyWordIndex<TrackedWord>();
+  for (const w of words.values()) {
+    addWordToWordIndex(wordIndex, w, w);
+  }
+
+  const nextWordId = Math.max(0, ...words.keys()) + 1;
+
   // note that if clocks were messed up, we could end up loading stats for a day
   // that was _not_ the latest day stored in the db
   const dayNumber = timeToLogicalDayNum(time);
@@ -172,6 +195,8 @@ export async function initState(config: QuizEngineConfig, time: Dayjs): Promise<
   return {
     config,
     words,
+    wordIndex,
+    nextWordId,
     todayStats,
   };
 }
@@ -179,7 +204,7 @@ export async function initState(config: QuizEngineConfig, time: Dayjs): Promise<
 // immutable
 interface WordsAnalysis {
   // words due for review now. highest-priority word will be first
-  readonly dueWords: ReadonlyArray<Word>;
+  readonly dueWords: ReadonlyArray<TrackedWord>;
 
   // if defined and >0, there must be no dueWords, and this is the time in
   // seconds until the next learning-status word is due for review. this is
@@ -189,8 +214,8 @@ interface WordsAnalysis {
 
 function analyzeWords(state: QuizEngineState, time: Dayjs): WordsAnalysis {
   // there is not an efficient way to do this with map/filter due to iterable
-  const learningWords: Array<Word> = [];
-  const reviewingWords: Array<Word> = [];
+  const learningWords: Array<TrackedWord> = [];
+  const reviewingWords: Array<TrackedWord> = [];
   for (const a of state.words.values()) {
     switch (a.status) {
       case WordStatus.Learning:
@@ -207,7 +232,7 @@ function analyzeWords(state: QuizEngineState, time: Dayjs): WordsAnalysis {
   learningWords.sort((a, b) => a.nextTime - b.nextTime);
   reviewingWords.sort((a, b) => a.nextTime - b.nextTime);
 
-  const dueWords: Array<Word> = [];
+  const dueWords: Array<TrackedWord> = [];
 
   // handle words with learning status
   const unixTime = time.unix();
@@ -238,60 +263,108 @@ function analyzeWords(state: QuizEngineState, time: Dayjs): WordsAnalysis {
   };
 }
 
+/*
+type WordRef =
+  {
+    readonly kind: 'tracked';
+    readonly trackedWord: TrackedWord;
+  } | {
+    readonly kind: 'ordering';
+    readonly orderingIdx: number;
+  };
+
+function wordRefsAreSame(a: WordRef, b: WordRef): boolean {
+  if (a.kind === 'tracked') {
+    return (b.kind === 'tracked') && (a.trackedWord === b.trackedWord);
+  } else if (a.kind === 'ordering') {
+    return (b.kind === 'ordering') && (a.orderingIdx === b.orderingIdx);
+  }
+  invariant(false);
+}
+
+function getWordRefDisplayText(wordRef: WordRef): string {
+  switch (wordRef.kind) {
+    case 'tracked':
+      return wordRef.trackedWord.spec;
+
+    case 'ordering':
+      return WORD_ORDERING[wordRef.orderingIdx];
+  }
+}
+*/
+
 // subtypes of trie-related types
-type QToken = Token; // this can be a subtype of token
-interface QTrieWord extends TrieWord<QToken> {
-  // one of the two fields should be defined
-  readonly wordTracking: Word | undefined;
-  readonly orderingIdx: number | undefined;
+type WToken = Token; // token type used in words. this could be a subtype of Token
+interface FToken extends Token { // token type used in fragments
+  readonly b: number; // begin index
+  readonly e: number; // end index
+}
+interface QTrieWord extends TrieWord<WToken> {
+  readonly tword: TokenizedWord;
+  // readonly wordRef: WordRef;
 }
 type QWordTrie = Trie<Token, QTrieWord>;
 
 function buildWordTrie(state: QuizEngineState): QWordTrie {
-  const trie = createEmptyTrie<QToken, QTrieWord>();
+  const trie = createEmptyTrie<WToken, QTrieWord>();
 
-  // add tracked words, checking if each is in ordering, and keeping track of ordering indexes added
-  const orderingIdxsAdded: Set<number> = new Set();
+  // add tracked words
   for (const w of state.words.values()) {
-    // TODO: we can look this up by string now, but will later need to look up by tokens,
-    // and then filter by rest of spec, I think
-    const orderingIdx = WORD_ORDERING_MAP.get(w.text);
-
     addWordToTrie(trie, {
-      toks: [{t: w.text}], // TODO: this will need to be updated once we store tokenizations
-      wordTracking: w,
-      orderingIdx,
+      toks: w.tokens.split('|').map(tok => ({t: tok})),
+      tword: w,
     });
-
-    if (orderingIdx !== undefined) {
-      orderingIdxsAdded.add(orderingIdx);
-    }
   }
 
-  // add all words from ordering that were not already added
-  WORD_ORDERING.forEach((w, idx) => {
+  // add all words from ordering that are not tracked
+  for (const w of WORD_ORDERING) {
     addWordToTrie(trie, {
-      toks: [{t: w}], // TODO: this will need to be updated once we store tokenizations
-      wordTracking: undefined,
-      orderingIdx: idx,
+      // TODO: this will need to be updated once we store tokenizations in ordering
+      toks: [{t: w}],
+      tword: {
+        spec: w,
+        tokens: w,
+      },
     });
-  });
+  }
 
   return trie;
 }
 
-async function getFragmentForTargetWord(state: QuizEngineState, targetWordText: string, trie: QWordTrie): Promise<FragmentResult> {
+interface FindWordsResult {
+  readonly foundWords: ReadonlyArray<QTrieWord>;
+  readonly unmatchedToks: ReadonlyArray<FToken>;
+}
+
+function findWordsInFragment(fragmentText: string, fragmentTokens: ReadonlyArray<ContigTokenization<FToken>>, trie: QWordTrie): FindWordsResult {
+  const foundWords: Array<QTrieWord> = [];
+  const unmatchedToks: Array<FToken> = [];
+  for (const fragContigTokenRun of fragmentTokens) {
+    const findResult = findWordsInText(trie, fragContigTokenRun);
+    foundWords.push(...findResult.words);
+    unmatchedToks.push(...findResult.unmatched);
+  }
+
+  return {
+    foundWords,
+    unmatchedToks,
+  };
+}
+
+async function getFragmentForTargetWord(state: QuizEngineState, tword: TokenizedWord, trie: QWordTrie): Promise<FragmentResult> {
   // a word text is currently the same as a Massif search query
-  const fragments = await searchFragments(targetWordText);
+
+  // NOTE: This relies on the Massif search string being the same as the "spec" currently
+  const fragments = await searchFragments(tword.spec);
 
   const fragment = randomChoice(fragments.results);
 
   return fragment;
 }
 
-enum QuizKind {
+export enum QuizKind {
   SRS_REVIEW = 'srs_review', // reviewing a word in SRS
-  SRS_SUGGEST = 'srs_suggest', // suggesting they add a word to SRS if they don't know it
+  SUGGEST_SRS = 'suggest_srs', // suggesting they add a word to SRS if they don't know it
   PROBE = 'probe', // just checking if they know the target word
 }
 
@@ -299,11 +372,32 @@ enum QuizKind {
 export interface Quiz {
   readonly kind: QuizKind;
   readonly fragmentText: string;
-  readonly targetWordText: string;
+  readonly fragmentHighlightedHTML: string;
+  readonly fragmentTokenization: ReadonlyArray<ReadonlyArray<FToken>>;
+  readonly targetWord: TokenizedWord;
 }
 
-async function getQuizSuggestingOrderingIdx(state: QuizEngineState, targetIdx: number, trie: QWordTrie): Promise<Quiz> {
-  throw new Error('unimplemented');
+async function getQuizForTargetWord(state: QuizEngineState, quizKind: QuizKind, targetWord: TokenizedWord, trie: QWordTrie): Promise<Quiz> {
+  const fragment = await getFragmentForTargetWord(state, targetWord, trie);
+
+  return {
+    kind: quizKind,
+    fragmentText: fragment.text,
+    fragmentHighlightedHTML: fragment.highlighted_html,
+    fragmentTokenization: fragment.tokens,
+    targetWord,
+  };
+}
+
+async function getQuizForOrderingIdx(state: QuizEngineState, quizKind: QuizKind, targetIdx: number, trie: QWordTrie): Promise<Quiz> {
+  const w = WORD_ORDERING[targetIdx];
+  const tword: TokenizedWord = {
+    // TODO: This works for now because the ordering only contains single-token words,
+    // but later we will need to have them tokenized
+    spec: w,
+    tokens: w,
+  };
+  return getQuizForTargetWord(state, quizKind, tword, trie);
 }
 
 // mutates given state and has side effects
@@ -320,93 +414,325 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
 
   const wordsAn = analyzeWords(state, time);
 
+  // Build data about known/unknown words by ordering index, to be used for
+  // probing user's knowledge, suggesting SRS words to introduce, picking
+  // context fragments.
+  const pickerData: Array<[number, boolean]> = [];
+  const pickerDataIdxs: Set<number> = new Set(); // the set of idxs in pickerData
+  let lowestUnknownWordIdx: number | undefined = undefined;
+  const dontSuggestWordIdxs: Set<number> = new Set();
+  let countKnown = 0;
+  let countNotKnown = 0;
+  for (const word of state.words.values()) {
+    let known: true | false | undefined = undefined;
+    if (word.status === WordStatus.Learning) {
+      known = true;
+    } else if (word.status === WordStatus.Reviewing) {
+      known = true;
+    } else if (word.status === WordStatus.Tracked) {
+      if (word.known === WordKnown.Yes) {
+        known = true;
+      } else if (word.known === WordKnown.No) {
+        known = false;
+      }
+    }
+
+    if (known === true) {
+      countKnown++;
+    } else if (known === false) {
+      countNotKnown++;
+    }
+
+    if (known !== undefined) {
+      // look up the word to see if it is in the ordering, and if so what it's index is
+      const orderingIdx = getWordFromWordIndex(wordOrderingIndex, word);
+
+      if (orderingIdx !== undefined) {
+        pickerData.push([orderingIdx, known]);
+        pickerDataIdxs.add(orderingIdx);
+
+        if (known === false) {
+          if ((lowestUnknownWordIdx === undefined) || (orderingIdx < lowestUnknownWordIdx)) {
+            lowestUnknownWordIdx = orderingIdx;
+          }
+        }
+
+        const wordInSRS = (word.status === WordStatus.Learning) || (word.status === WordStatus.Reviewing);
+        if (wordInSRS || (known === true)) {
+          dontSuggestWordIdxs.add(orderingIdx);
+        }
+      }
+    }
+  }
+
+  // Do we have very limited data about what words (in the ordering) that the
+  // user knows or doesn't know?
+  logInfo(`picker data: ${countKnown} known, ${countNotKnown} not-known, ${pickerData.length} total`);
+
+  // Add padding/dummy elements to picker data to help it give reasonable results
+  // when there is little or no actual user data
+  const PADDING_DATA: ReadonlyArray<[number, boolean]> = [
+    [-1, true],
+    [100, true],
+    [3000, false],
+    [WORD_ORDERING.length, false],
+  ];
+  const paddedPickerData: ReadonlyArray<[number, boolean]> = [...PADDING_DATA, ...pickerData];
+
+  // Convert the "known" flag from boolean to int
+  const paddedNumPickerData: ReadonlyArray<[number, 0 | 1]> = paddedPickerData.map(([i, known]) => [i, known ? 1 : 0]); // convert bools to nums
+
+  const clampIndexToOrdering = (idx: number) => Math.max(Math.min(idx, WORD_ORDERING.length-1), 0);
+
+  // Determine how many iterations of logistic regression to do. As we have more data,
+  // we do fewer iterations.
+  const logRegIters = Math.min(10000, Math.ceil(100000/paddedNumPickerData.length));
+
+  // Do logistic regression, i.e. fit a logistic curve to the (padded data)
+  const LOGREG_REGULARIZATION = 0.001; // only need a little bit to prevent explosion with linearly separable data
+  const LOGREG_LEARN_RATE = 1; // this seems plenty stable, tho surely not optimal
+  const fitT0 = Date.now();
+  const fr = rescaleAndFit(paddedNumPickerData, LOGREG_REGULARIZATION, LOGREG_LEARN_RATE, logRegIters);
+  logInfo(`logistic regression took ${Math.round(Date.now()-fitT0)}ms for ${logRegIters} iterations`);
+
+  // the index (before clamping to reasonable bounds) at which the model predicts
+  // the user "probably" knows a word
+  const PROBABLY_KNOWN_PROB = 0.8; // what probability is "probably" for our purposes?
+  const unclampedProbablyKnownIdx = Math.round(findXGivenProb(fr, PROBABLY_KNOWN_PROB));
+
+  const probablyKnownIdx = clampIndexToOrdering(unclampedProbablyKnownIdx);
+
+  logInfo(`logreg model says words known with ${PROBABLY_KNOWN_PROB} prob at index ${unclampedProbablyKnownIdx} (unclamped), ${probablyKnownIdx} (clamped)`);
+
+  // Until we have this many data points about words known or not-known, keep probing
+  const PROBE_UNTIL_WORD_DATA_POINTS = 100;
+  if (pickerData.length < PROBE_UNTIL_WORD_DATA_POINTS) {
+    // Continue to probe the user's knowledge, like a proficiency test
+    logInfo(`not enough work data, so probing`);
+
+    // pick an index randomly within a window of this radius around the index logistic regression gave us
+    const PROBE_JITTER_RADIUS = 20;
+
+    // find the (clamped) window indexes
+    const probeWindowMin = clampIndexToOrdering(probablyKnownIdx - PROBE_JITTER_RADIUS);
+    const probeWindowMax = clampIndexToOrdering(probablyKnownIdx + PROBE_JITTER_RADIUS);
+    const probeWindowSize = probeWindowMax - probeWindowMin;
+    invariant(probeWindowSize > 0);
+
+    // we want to avoid choosing indexes that we already have data for, so compute
+    // the set of "pickable" indexes
+    const probeWindowPickable: Set<number> = new Set();
+    for (let idx = probeWindowMin; idx < probeWindowMax; idx++) {
+      probeWindowPickable.add(idx);
+    }
+    let probeWindowCount = 0;
+    let probeWindowKnown = 0;
+    for (const [idx, known] of pickerData) {
+      if ((idx >= probeWindowMin) && (idx < probeWindowMax)) {
+        probeWindowPickable.delete(idx);
+        probeWindowCount++;
+        if (known) {
+          probeWindowKnown++;
+        }
+      }
+    }
+    invariant(probeWindowPickable.size > 0); // there must be some pickable indexes
+
+    logInfo(`clamped probe window from ${probeWindowMin} to ${probeWindowMax}, pickable fraction ${probeWindowPickable.size/(probeWindowMax-probeWindowMin)}, within window ${probeWindowKnown} known out of ${probeWindowCount} (${100*probeWindowKnown/probeWindowCount}%)`);
+
+    // do the random pick to get the jittered index
+    const jitteredProbeIdx = randomChoice([...probeWindowPickable]);
+
+    logInfo(`jittered probe index is ${jitteredProbeIdx}`);
+
+    // out of curiosity, how many word are not-known below the jittered probe index?
+    let unknownBelowCount = 0;
+    for (const [idx, known] of pickerData) {
+      if ((idx < jitteredProbeIdx) && !known) {
+        unknownBelowCount++;
+      }
+    }
+    logInfo(`${unknownBelowCount} not-known below jittered probe idx`);
+
+    return getQuizForOrderingIdx(state, QuizKind.PROBE, jitteredProbeIdx, trie);
+  }
+
+  // Are there any SRS words due?
   if (wordsAn.dueWords.length > 0) {
     // review due word
 
     const targetWord = wordsAn.dueWords[0];
 
-    const fragment = await getFragmentForTargetWord(state, targetWord.text, trie);
-
-    return {
-      kind: QuizKind.SRS_REVIEW,
-      fragmentText: fragment.text,
-      targetWordText: targetWord.text,
-    };
+    return getQuizForTargetWord(state, QuizKind.SRS_REVIEW, targetWord, trie);
   }
 
+  // Are we still OK to suggest more words to add to SRS?
   if (state.todayStats.introCount < DAILY_INTRO_LIMIT) {
     // introduce or suggest something
+    logInfo(`looking for a word to suggest adding to SRS`);
 
     // TODO: first check words with Queued status. if so we can add to SRS right here, no need to "suggest"
 
     // Pick a word from ordering to suggest
 
-    // Build compact data about known/unknown words by ordering index
-    const pickerData: Array<[number, boolean]> = [];
-    const pickerIdxSet: Set<number> = new Set(); // the set of idxs in pickerData
-    let lowestUnknownWordIdx: number | undefined = undefined;
-    for (const word of state.words.values()) {
-      let known: true | false | undefined = undefined;
-      if (word.status === WordStatus.Learning) {
-        known = true;
-      } else if (word.status === WordStatus.Reviewing) {
-        known = true;
-      } else if (word.status === WordStatus.Tracked) {
-        if (word.known === WordKnown.Yes) {
-          known = true;
-        } else if (word.known === WordKnown.No) {
-          known = false;
-        }
-      }
-
-      if (known !== undefined) {
-        // look up index in ordering
-        // TODO: we can look this up by string now, but will later need to look up by tokens,
-        // and then filter by rest of spec, I think
-        const orderingIdx = WORD_ORDERING_MAP.get(word.text);
-
-        if (orderingIdx !== undefined) {
-          pickerData.push([orderingIdx, known]);
-          pickerIdxSet.add(orderingIdx);
-
-          if (known === false) {
-            if ((lowestUnknownWordIdx === undefined) || (orderingIdx < lowestUnknownWordIdx)) {
-              lowestUnknownWordIdx = orderingIdx;
-            }
-          }
-        }
-      }
-    }
-
-    // Take our first several picks from a manually curated list, rather than
-    // using the algorithm, since the data will be sparse/empty.
-    if (pickerData.length < TEST_WORD_IDXS.length) {
-      for (const idx of TEST_WORD_IDXS) {
-        if (!pickerIdxSet.has(idx)) {
-          return getQuizSuggestingOrderingIdx(state, idx, trie);
-        }
-      }
-    }
-
+    throw new Error('unimplemented');
+    /*
     const pickIdx = pickIndex(-1, WORD_ORDERING.length+1, pickerData, ORDERING_INTRO_KNOWN_PROB);
+    logInfo(`picking algo gave index ${pickIdx} around which to suggest`);
 
     if ((lowestUnknownWordIdx !== undefined) && (lowestUnknownWordIdx <= pickIdx)) {
       // NOTE: This is the index of the lowest word explicitly marked not-known, not just the lowest
       // word that we are unsure about
-      return getQuizSuggestingOrderingIdx(state, lowestUnknownWordIdx, trie);
+      logInfo(`found tracked-as-not-known word below pick-index at index ${lowestUnknownWordIdx} to suggest`);
+      return getQuizForOrderingIdx(state, QuizKind.SUGGEST_SRS, lowestUnknownWordIdx, trie);
     } else {
-      // start at pickIdx and work upward, finding lowest index where word is:
-      // not_in_tracking OR (not_in_SRS AND (known is No or Maybe))
-      // Note: in loop above we can build set of indexes that should _not_ be suggested
-      throw new Error('unimplemented');
+      // word upward from pickIdx until we find an acceptable word to suggest
+      for (let idx = pickIdx; idx < WORD_ORDERING.length; idx++) {
+        if (!dontSuggestWordIdxs.has(idx)) {
+          logInfo(`worked up from pick-index and found acceptable word at index ${idx} to suggest`);
+          return getQuizForOrderingIdx(state, QuizKind.SUGGEST_SRS, idx, trie);
+        }
+      }
+      throw new Error('could not find any word in ordering to suggest');
     }
+    */
   }
 
   // nothing due to review, and daily intro limit has been hit
-  throw new Error('unimplemented');
+  throw new Error('unimplemented: nothing due and intro limit hit');
+}
+
+export type Feedback =
+  {
+    readonly kind: 'Fy'; // fragment fully understood
+  } | {
+    readonly kind: 'FnWy'; // fragment not fully understood, but target word known
+  } | {
+    readonly kind: 'FnWn'; // fragment not fully understood, and target word not known
+  } | {
+    readonly kind: 'FnWnAy'; // fragment not fully understood, target word not known, agreed to add to SRS
+  } | {
+    readonly kind: 'FnWnAn'; // fragment not fully understood, target word not known, declined to add to SRS
+  };
+
+function getOrCreateWordTracking(state: QuizEngineState, time: Dayjs, tword: TokenizedWord): TrackedWord {
+  const result = getWordFromWordIndex(state.wordIndex, tword);
+  if (result !== undefined) {
+    return result;
+  }
+
+  const newWordId = state.nextWordId;
+  state.nextWordId++;
+
+  const newTW: TrackedWord = {
+    id: newWordId,
+
+    spec: tword.spec,
+    tokens: tword.tokens,
+
+    status: WordStatus.Tracked,
+    known: WordKnown.Maybe,
+    nextTime: 0,
+    interval: 0,
+    timeAdded: time.unix(),
+    notes: '',
+  };
+
+  state.words.set(newWordId, newTW);
+
+  addWordToWordIndex(state.wordIndex, newTW, newTW);
+
+  return newTW;
 }
 
 // mutates given state and has side effects
-export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Quiz): Promise<void> {
+export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Quiz, feedback: Feedback): Promise<void> {
+  /*
+  const addOrderingIdxToTracked = (oIdx: number, known: WordKnown): TrackedWord => {
+    const newWordId = state.nextWordId;
+    const newTW: TrackedWord = {
+      id: newWordId,
+
+      // TODO: when ordering has multi-token words, these will be different
+      spec: WORD_ORDERING[oIdx],
+      tokens: WORD_ORDERING[oIdx],
+
+      status: WordStatus.Tracked,
+      known,
+      nextTime: 0,
+      interval: 0,
+      timeAdded: time.unix(),
+      notes: '',
+    };
+    state.words.set(newWordId, newTW);
+    state.nextWordId++;
+    return newTW;
+  };
+  */
+
+  logInfo(`took feedback of kind ${feedback.kind}`);
+
+  // TODO: if there was an intro, update daily intro count
+
   await storeDayStats(state.todayStats);
+
+  const trie = buildWordTrie(state);
+  const fwr = findWordsInFragment(quiz.fragmentText, quiz.fragmentTokenization, trie);
+
+  // add/update word tracking for words and unmatched tokens found in fragment,
+  // but skipping the target word
+  for (const fw of fwr.foundWords) {
+    if (tokenizedWordsAreSame(fw.tword, quiz.targetWord)) {
+      continue;
+    }
+
+    const wt = getOrCreateWordTracking(state, time, fw.tword);
+    // TODO: update last seen time
+    if (feedback.kind === 'Fy') {
+      const wordInSRS = (wt.status === WordStatus.Learning) || (wt.status === WordStatus.Reviewing);
+      invariant((wordInSRS && (wt.known === WordKnown.SRS)) || (!wordInSRS && (wt.known !== WordKnown.SRS)));
+      if (wordInSRS) {
+        throw new Error('unimplemented: update SRS for non-target word, success');
+      } else {
+        wt.known = WordKnown.Yes;
+      }
+    }
+  }
+  for (const umt of fwr.unmatchedToks) {
+    // TODO: handle
+  }
+
+  // handle the target word
+
+  // add target word to tracking if not already tracked
+  const targetWordTracking = getOrCreateWordTracking(state, time, quiz.targetWord);
+  const targetWordInSRS = (targetWordTracking.status === WordStatus.Learning) || (targetWordTracking.status === WordStatus.Reviewing);
+
+  if (feedback.kind === 'Fy') {
+    if (targetWordInSRS) {
+      throw new Error('unimplemented: update SRS for target word, success');
+    } else {
+      targetWordTracking.known = WordKnown.Yes;
+    }
+  } else {
+    // must be Fn*
+    if (feedback.kind === 'FnWy') {
+      if (targetWordInSRS) {
+        throw new Error('unimplemented: update SRS for target word, success');
+      } else {
+        targetWordTracking.known = WordKnown.Yes;
+      }
+    } else {
+      // must be FnWn*
+      if (targetWordInSRS) {
+        throw new Error('unimplemented: update SRS, failure');
+      } else {
+        targetWordTracking.known = WordKnown.No;
+      }
+
+      // TODO: handle FnWnA*
+    }
+  }
+
+  console.log('after feedback, words:', state.words);
 }
