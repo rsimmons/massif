@@ -40,7 +40,7 @@ interface ManifoldState {
       readonly fragmentTranslation: FragmentTranslation;
       readonly fragmentUnderstood: null | boolean;
       readonly targetWordKnown: null | boolean;
-      readonly targetNotInFragment: boolean;
+      readonly addTargetWordToSRS: null | boolean;
     } | {
       readonly mode: 'nothingToQuiz';
     };
@@ -71,7 +71,8 @@ type ManifoldEvent =
     readonly type: 'quizUpdateTargetWordKnown';
     readonly val: boolean;
   } | {
-    readonly type: 'quizToggleTargetNotInFragment';
+    readonly type: 'quizUpdateAddTargetWordToSRS';
+    readonly val: boolean;
   } | {
     readonly type: 'quizSubmitGrading';
   } | {
@@ -126,9 +127,59 @@ function updateStateCoreStats(state: ManifoldState): ManifoldState {
   */
 }
 
-function stateCanSubmitGrading(state: ManifoldState): boolean {
+function quizCanSubmitGrading(state: ManifoldState): boolean {
   invariant(state.mainUI.mode === 'quiz');
   return (state.mainUI.fragmentUnderstood !== null) && (state.mainUI.targetWordKnown !== null);
+}
+
+function quizShouldSuggestAddingToSRS(state: ManifoldState): boolean {
+  invariant(state.mainUI.mode === 'quiz');
+
+  return (state.mainUI.quiz.kind === QuizKind.SUGGEST_SRS) && (state.mainUI.targetWordKnown === false);
+}
+
+function quizSubmitGrading(state: ManifoldState, exec: EffectReducerExec<ManifoldState, ManifoldEvent, ManifoldEffect>): ManifoldState {
+  invariant(state.mainUI.mode === 'quiz');
+  invariant(state.mainUI.fragmentUnderstood !== null);
+  invariant(state.mainUI.targetWordKnown !== null);
+
+  invariant(quizCanSubmitGrading(state)); // currently redundant with above, for type narrowing purposes
+
+  const feedback: Feedback = (() => {
+    console.log('quizSubmitGrading', state.mainUI);
+    if (state.mainUI.fragmentUnderstood) {
+      invariant(state.mainUI.targetWordKnown);
+      return {kind: 'Fy'};
+    } else {
+      if (state.mainUI.targetWordKnown) {
+        return {kind: 'FnWy'};
+      } else {
+        switch (state.mainUI.addTargetWordToSRS) {
+          case null:
+            return {kind: 'FnWn'};
+
+          case true:
+            return {kind: 'FnWnAy'};
+
+          case false:
+            return {kind: 'FnWnAn'};
+        }
+      }
+    }
+  })();
+
+  exec({
+    type: 'quizTakeFeedbackAndLoadNext',
+    prevQuiz: state.mainUI.quiz,
+    feedback,
+  });
+
+  return {
+    ...state,
+    mainUI: {
+      mode: 'quizLoading',
+    },
+  };
 }
 
 const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (state, event, exec) => {
@@ -196,6 +247,7 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
           fragmentUnderstood: null,
           targetWordKnown: null,
           targetNotInFragment: false,
+          addTargetWordToSRS: null,
         },
       };
     }
@@ -222,10 +274,10 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
         },
       };
 
-    case 'quizUpdateTargetWordKnown':
+    case 'quizUpdateTargetWordKnown': {
       invariant(state.mainUI.mode === 'quiz');
 
-      return {
+      const newState: ManifoldState = {
         ...state,
         mainUI: {
           ...state.mainUI,
@@ -233,49 +285,29 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
         },
       };
 
-    case 'quizToggleTargetNotInFragment':
+      // If we will suggest SRS, return this state,
+      // otherwise go ahead and submit grading (we're done with quiz)
+      return quizShouldSuggestAddingToSRS(newState) ?
+        newState :
+        quizSubmitGrading(newState, exec);
+    }
+
+    case 'quizUpdateAddTargetWordToSRS': {
       invariant(state.mainUI.mode === 'quiz');
 
-      return {
+      const newState: ManifoldState = {
         ...state,
         mainUI: {
           ...state.mainUI,
-          targetNotInFragment: !state.mainUI.targetNotInFragment,
+          addTargetWordToSRS: event.val,
         },
       };
 
-    case 'quizSubmitGrading': {
-      invariant(state.mainUI.mode === 'quiz');
-      invariant(state.mainUI.fragmentUnderstood !== null);
-      invariant(state.mainUI.targetWordKnown !== null);
-
-      invariant(stateCanSubmitGrading(state)); // currently redundant with above, for type narrowing purposes
-
-      const feedback: Feedback = (() => {
-        console.log('quizSubmitGrading', state.mainUI);
-        if (state.mainUI.fragmentUnderstood) {
-          invariant(state.mainUI.targetWordKnown);
-          return {kind: 'Fy'};
-        } else {
-          return state.mainUI.targetWordKnown ? {kind: 'FnWy'} : {kind: 'FnWn'};
-        }
-
-        invariant(false);
-      })();
-
-      exec({
-        type: 'quizTakeFeedbackAndLoadNext',
-        prevQuiz: state.mainUI.quiz,
-        feedback,
-      });
-
-      return {
-        ...state,
-        mainUI: {
-          mode: 'quizLoading',
-        },
-      };
+      return quizSubmitGrading(newState, exec);
     }
+
+    case 'quizSubmitGrading':
+      return quizSubmitGrading(state, exec);
 
     case 'quizRefresh':
       invariant(state.mainUI.mode === 'nothingToQuiz');
@@ -493,7 +525,7 @@ const App: React.FC = () => {
                 return (
                   <>
                     <div className="App-quiz-fragment-text">
-                      {(state.mainUI.gradingRevealed) ? (
+                      {(state.mainUI.gradingRevealed && (state.mainUI.fragmentUnderstood !== null)) ? (
                         <span dangerouslySetInnerHTML={{__html: state.mainUI.quiz.fragmentHighlightedHTML}}></span>
                       ) : (
                         <>{state.mainUI.quiz.fragmentText}</>
@@ -528,7 +560,7 @@ const App: React.FC = () => {
                         </div>
                         <div className="App-quiz-space-above">
                           <RadioButtons
-                            label={'Fragment understood?'}
+                            label={'Read+understood?'}
                             options={[
                               {val: 'y', name: 'Yes'},
                               {val: 'n', name: 'No'},
@@ -537,29 +569,32 @@ const App: React.FC = () => {
                             onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateFragmentUnderstood', val: newKey === 'y'})}}
                           />
                         </div>
-                        <div className="App-quiz-space-above">
-                          <RadioButtons
-                            label={'Word known?'}
-                            options={[
-                              {val: 'y', name: 'Yes'},
-                              {val: 'n', name: 'No'},
-                            ]}
-                            val={maybeBoolToYN(state.mainUI.targetWordKnown)}
-                            onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateTargetWordKnown', val: newKey === 'y'})}}
-                          />
-                        </div>
-                        <div className="App-quiz-space-above">
-                          <div>Other</div>
-                          <div className="App-quiz-other-buttons">
-                            <button
-                              className={'App-chonky-button' + (state.mainUI.targetNotInFragment ? ' App-button-selected' : '')}
-                              onClick={() => {dispatch({type: 'quizToggleTargetNotInFragment'})}}
-                            >Target Not<br/>In Fragment</button>
+                        {(state.mainUI.fragmentUnderstood !== null) && (<>
+                          <div className="App-quiz-space-above">
+                            <RadioButtons
+                              label={'Word known?'}
+                              options={[
+                                {val: 'y', name: 'Yes'},
+                                {val: 'n', name: 'No'},
+                              ]}
+                              val={maybeBoolToYN(state.mainUI.targetWordKnown)}
+                              onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateTargetWordKnown', val: newKey === 'y'})}}
+                            />
                           </div>
-                        </div>
-                        <div className="App-quiz-big-space-above">
-                          <button className={'App-chonky-button' + (!stateCanSubmitGrading(state) ? ' App-hidden' : '')} onClick={() => {dispatch({type: 'quizSubmitGrading'})}}>Continue</button>
-                        </div>
+                          {quizShouldSuggestAddingToSRS(state) && (
+                            <div className="App-quiz-space-above">
+                              <RadioButtons
+                                label={'Add to SRS?'}
+                                options={[
+                                  {val: 'y', name: 'Yes'},
+                                  {val: 'n', name: 'No'},
+                                ]}
+                                val={maybeBoolToYN(state.mainUI.addTargetWordToSRS)}
+                                onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateAddTargetWordToSRS', val: newKey === 'y'})}}
+                              />
+                            </div>
+                          )}
+                        </>)}
                       </div>
                     ) : (
                       <div className="App-quiz-big-space-above">

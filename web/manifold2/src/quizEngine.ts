@@ -399,7 +399,7 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
   const pickerData: Array<[number, boolean]> = [];
   const pickerDataIdxs: Set<number> = new Set(); // the set of idxs in pickerData
   let lowestUnknownWordIdx: number | undefined = undefined;
-  const dontSuggestWordIdxs: Set<number> = new Set();
+  const dontSuggestSRSWordIdxs: Set<number> = new Set();
   let countKnown = 0;
   let countNotKnown = 0;
   for (const word of state.words.values()) {
@@ -437,8 +437,8 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
         }
 
         const wordInSRS = (word.status === WordStatus.Learning) || (word.status === WordStatus.Reviewing);
-        if (wordInSRS || (known === true)) {
-          dontSuggestWordIdxs.add(orderingIdx);
+        if (wordInSRS || (word.status === WordStatus.Declined) || (known === true)) {
+          dontSuggestSRSWordIdxs.add(orderingIdx);
         }
       }
     }
@@ -541,11 +541,13 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
   }
 
   // Are there any SRS words due?
+  logInfo(`${wordsAn.dueWords.length} words due for SRS`);
   if (wordsAn.dueWords.length > 0) {
     // review due word
 
     const targetWord = wordsAn.dueWords[0];
 
+    logInfo(`doing SRS quiz for due word spec: ${targetWord.spec}`);
     return getQuizForTargetWord(state, QuizKind.SRS_REVIEW, targetWord, trie);
   }
 
@@ -566,7 +568,7 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
     } else {
       // work upward from probablyKnownIdx until we find an acceptable word to suggest
       for (let idx = probablyKnownIdx; idx < WORD_ORDERING.length; idx++) {
-        if (!dontSuggestWordIdxs.has(idx)) {
+        if (!dontSuggestSRSWordIdxs.has(idx)) {
           logInfo(`worked up from probably-known index and found acceptable word at index ${idx} to suggest`);
           return getQuizForOrderingIdx(state, QuizKind.SUGGEST_SRS, idx, trie);
         }
@@ -626,6 +628,50 @@ function getOrCreateWordTracking(state: QuizEngineState, time: Dayjs, tword: Tok
   return newTW;
 }
 
+function jitterInterval(iv: number): number {
+  return (1 + 2*JITTER*(Math.random() - 0.5))*iv;
+};
+
+function updateWordForSRSSuccess(tw: TrackedWord, time: Dayjs): void {
+  logInfo(`SRS success, updating word spec: ${tw.spec}`);
+
+  if (tw.interval > LAST_LEARNING_INTERVAL) {
+    // was already graduated
+    tw.interval = Math.floor(jitterInterval(SUCCESS_MULT*tw.interval));
+  } else {
+    // was still in learning
+    let nextLearningIterval: number | undefined;
+    for (const iv of LEARNING_STEPS) {
+      if (iv > tw.interval) {
+        nextLearningIterval = iv;
+        break;
+      }
+    }
+    if (nextLearningIterval === undefined) {
+      // graduates
+      tw.interval = Math.floor(jitterInterval(GRADUATING_INTERVAL));
+    } else {
+      tw.interval = nextLearningIterval;
+    }
+  }
+
+  tw.nextTime = time.unix() + tw.interval;
+}
+
+function updateWordForSRSFailure(tw: TrackedWord, time: Dayjs): void {
+  logInfo(`SRS failure, updating word spec: ${tw.spec}`);
+
+  if (tw.interval > LAST_LEARNING_INTERVAL) {
+    // was already graduated
+    tw.interval = Math.floor(jitterInterval(Math.pow(tw.interval, FAIL_EXP)));
+  } else {
+    // was still in learning
+    tw.interval = INITIAL_INTERVAL;
+  }
+
+  tw.nextTime = time.unix() + tw.interval;
+}
+
 // mutates given state and has side effects
 export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Quiz, feedback: Feedback): Promise<void> {
   logInfo(`took feedback of kind ${feedback.kind}`);
@@ -652,11 +698,12 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
       const wordInSRS = (wt.status === WordStatus.Learning) || (wt.status === WordStatus.Reviewing);
       invariant((wordInSRS && (wt.known === WordKnown.SRS)) || (!wordInSRS && (wt.known !== WordKnown.SRS)));
       if (wordInSRS) {
-        throw new Error('unimplemented: update SRS for non-target word, success');
+        updateWordForSRSSuccess(wt, time);
       } else {
         wt.known = WordKnown.Yes;
       }
     }
+
     await storeWord(wt);
   }
   for (const umt of fwr.unmatchedToks) {
@@ -673,7 +720,7 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
 
   if (feedback.kind === 'Fy') {
     if (targetWordInSRS) {
-      throw new Error('unimplemented: update SRS for target word, success');
+      updateWordForSRSSuccess(targetWordTracking, time);
     } else {
       targetWordTracking.known = WordKnown.Yes;
     }
@@ -681,19 +728,29 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
     // must be Fn*
     if (feedback.kind === 'FnWy') {
       if (targetWordInSRS) {
-        throw new Error('unimplemented: update SRS for target word, success');
+        updateWordForSRSSuccess(targetWordTracking, time);
       } else {
         targetWordTracking.known = WordKnown.Yes;
       }
     } else {
       // must be FnWn*
       if (targetWordInSRS) {
-        throw new Error('unimplemented: update SRS, failure');
+        updateWordForSRSFailure(targetWordTracking, time);
       } else {
         targetWordTracking.known = WordKnown.No;
       }
 
-      // TODO: handle FnWnA*
+      // handle FnWnA*
+      if (feedback.kind === 'FnWnAy') {
+        // Add word to SRS
+        targetWordTracking.status = WordStatus.Learning;
+        targetWordTracking.known = WordKnown.SRS;
+        targetWordTracking.interval = INITIAL_INTERVAL;
+        targetWordTracking.nextTime = time.unix() + INITIAL_INTERVAL;
+      } else if (feedback.kind === 'FnWnAn') {
+        // Mark word as declined so that we won't suggest it again
+        targetWordTracking.status = WordStatus.Declined;
+      }
     }
   }
   await storeWord(targetWordTracking);
