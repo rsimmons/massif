@@ -7,10 +7,6 @@ import { Feedback, getNextQuiz, initState, Quiz, QuizEngineState, QuizKind, take
 import './App.css';
 import { translateText } from './massifAPI';
 
-
-type FragmentUnderstood = 'y' | 'n' | 'u';
-type AtomRemembered = 'y' | 'n';
-
 type FragmentTranslation =
   {
     type: 'none';
@@ -42,8 +38,8 @@ interface ManifoldState {
       readonly quiz: Quiz;
       readonly gradingRevealed: boolean;
       readonly fragmentTranslation: FragmentTranslation;
-      readonly fragmentUnderstood: null | FragmentUnderstood;
-      readonly atomRemembered: null | AtomRemembered;
+      readonly fragmentUnderstood: null | boolean;
+      readonly targetWordKnown: null | boolean;
       readonly targetNotInFragment: boolean;
     } | {
       readonly mode: 'nothingToQuiz';
@@ -70,10 +66,10 @@ type ManifoldEvent =
     readonly type: 'quizRevealGrading';
   } | {
     readonly type: 'quizUpdateFragmentUnderstood';
-    readonly val: FragmentUnderstood;
+    readonly val: boolean;
   } | {
-    readonly type: 'quizUpdateTargetAtomRemembered';
-    readonly val: AtomRemembered;
+    readonly type: 'quizUpdateTargetWordKnown';
+    readonly val: boolean;
   } | {
     readonly type: 'quizToggleTargetNotInFragment';
   } | {
@@ -132,7 +128,7 @@ function updateStateCoreStats(state: ManifoldState): ManifoldState {
 
 function stateCanSubmitGrading(state: ManifoldState): boolean {
   invariant(state.mainUI.mode === 'quiz');
-  return (state.mainUI.fragmentUnderstood !== null) && (state.mainUI.atomRemembered !== null);
+  return (state.mainUI.fragmentUnderstood !== null) && (state.mainUI.targetWordKnown !== null);
 }
 
 const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (state, event, exec) => {
@@ -198,7 +194,7 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
           gradingRevealed: false,
           fragmentTranslation: {type: 'none'},
           fragmentUnderstood: null,
-          atomRemembered: null,
+          targetWordKnown: null,
           targetNotInFragment: false,
         },
       };
@@ -226,14 +222,14 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
         },
       };
 
-    case 'quizUpdateTargetAtomRemembered':
+    case 'quizUpdateTargetWordKnown':
       invariant(state.mainUI.mode === 'quiz');
 
       return {
         ...state,
         mainUI: {
           ...state.mainUI,
-          atomRemembered: event.val,
+          targetWordKnown: event.val,
         },
       };
 
@@ -251,18 +247,17 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
     case 'quizSubmitGrading': {
       invariant(state.mainUI.mode === 'quiz');
       invariant(state.mainUI.fragmentUnderstood !== null);
-      invariant(state.mainUI.fragmentUnderstood !== 'u'); // don't support this now
-      invariant(state.mainUI.atomRemembered !== null);
+      invariant(state.mainUI.targetWordKnown !== null);
 
       invariant(stateCanSubmitGrading(state)); // currently redundant with above, for type narrowing purposes
 
       const feedback: Feedback = (() => {
         console.log('quizSubmitGrading', state.mainUI);
-        if (state.mainUI.fragmentUnderstood === 'y') {
-          invariant(state.mainUI.atomRemembered === 'y');
+        if (state.mainUI.fragmentUnderstood) {
+          invariant(state.mainUI.targetWordKnown);
           return {kind: 'Fy'};
         } else {
-          return (state.mainUI.atomRemembered === 'y') ? {kind: 'FnWy'} : {kind: 'FnWn'};
+          return state.mainUI.targetWordKnown ? {kind: 'FnWy'} : {kind: 'FnWn'};
         }
 
         invariant(false);
@@ -460,6 +455,14 @@ const RadioButtons: React.FC<{label: string, options: ReadonlyArray<{val: string
   );
 }
 
+function maybeBoolToYN(v: boolean | null): 'y' | 'n' | null {
+  if (v === null) {
+    return null;
+  } else {
+    return v ? 'y' : 'n';
+  }
+}
+
 const App: React.FC = () => {
   const [state, dispatch] = useEffectReducer(reducer, createInitialState, effectsMap);
 
@@ -525,25 +528,24 @@ const App: React.FC = () => {
                         </div>
                         <div className="App-quiz-space-above">
                           <RadioButtons
-                            label={'Fragment Understood?'}
+                            label={'Fragment understood?'}
                             options={[
                               {val: 'y', name: 'Yes'},
                               {val: 'n', name: 'No'},
-                              {val: 'u', name: 'Unsure'},
                             ]}
-                            val={state.mainUI.fragmentUnderstood}
-                            onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateFragmentUnderstood', val: newKey as FragmentUnderstood})}}
+                            val={maybeBoolToYN(state.mainUI.fragmentUnderstood)}
+                            onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateFragmentUnderstood', val: newKey === 'y'})}}
                           />
                         </div>
                         <div className="App-quiz-space-above">
                           <RadioButtons
-                            label={'Target Remembered?'}
+                            label={'Word known?'}
                             options={[
                               {val: 'y', name: 'Yes'},
                               {val: 'n', name: 'No'},
                             ]}
-                            val={state.mainUI.atomRemembered}
-                            onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateTargetAtomRemembered', val: newKey as AtomRemembered})}}
+                            val={maybeBoolToYN(state.mainUI.targetWordKnown)}
+                            onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateTargetWordKnown', val: newKey === 'y'})}}
                           />
                         </div>
                         <div className="App-quiz-space-above">
