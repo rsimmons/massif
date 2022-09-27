@@ -43,6 +43,10 @@ export async function loadAllWords(): Promise<Map<number, TrackedWord>> {
   return new Map((await db.word.toArray()).map(a => [a.id, a]));
 }
 
+export async function storeWord(w: TrackedWord): Promise<void> {
+  await db.word.put(w);
+}
+
 export async function loadDayStats(dayNumber: number): Promise<DayStats | undefined> {
   return await db.dayStats.get(dayNumber);
 }

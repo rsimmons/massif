@@ -1,7 +1,7 @@
 import dayjs, { Dayjs } from 'dayjs'
 
 import { FragmentResult, searchFragments } from './massifAPI';
-import { loadAllWords, loadDayStats, storeDayStats } from './storage';
+import { loadAllWords, loadDayStats, storeDayStats, storeWord } from './storage';
 import { invariant, randomChoice } from './util';
 import { addWordToTrie, createEmptyTrie, findWordsInText, Trie, TrieWord } from './wordTrie';
 import { ContigTokenization, Token } from './tokenization';
@@ -51,12 +51,15 @@ export interface QuizEngineConfig {
 }
 
 export enum WordStatus {
-  // We are tracking the user's knowledge of this word, but it's neither
-  // in SRS or queued to be added to SRS.
+  // We are tracking the user's knowledge of this word, but none of the other
+  // statuses apply
   Tracked = 'T',
 
-  // The word is queued to be added to SRS.
+  // The word is queued to be added to SRS
   Queued = 'Q',
+
+  // The user declined to add the word to SRS when we suggested them to
+  Declined = 'D',
 
   // The word is in SRS, in the initial "learning" phase
   Learning = 'L',
@@ -66,7 +69,7 @@ export enum WordStatus {
 }
 
 export enum WordKnown {
-  // The word is in SRS, which supercedes any other estimate of known-ness
+  // The word is in SRS, which supersedes any other estimate of known-ness
   SRS = 'S',
 
   // We think the word is more likely to be known/not-known by the user
@@ -446,7 +449,8 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
     [3000, false],
     [WORD_ORDERING.length, false],
   ];
-  const paddedPickerData: ReadonlyArray<[number, boolean]> = [...PADDING_DATA, ...pickerData];
+  const LOW_DATA_PAD_THRESH = 5;
+  const paddedPickerData: ReadonlyArray<[number, boolean]> = ((countKnown < LOW_DATA_PAD_THRESH) || (countNotKnown < LOW_DATA_PAD_THRESH)) ? [...PADDING_DATA, ...pickerData] : pickerData;
 
   // Convert the "known" flag from boolean to int
   const paddedNumPickerData: ReadonlyArray<[number, 0 | 1]> = paddedPickerData.map(([i, known]) => [i, known ? 1 : 0]); // convert bools to nums
@@ -473,11 +477,14 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
 
   logInfo(`logreg model says words known with ${PROBABLY_KNOWN_PROB} prob at index ${unclampedProbablyKnownIdx} (unclamped), ${probablyKnownIdx} (clamped)`);
 
+  const otherProbIndexes = [0.5, 0.6, 0.75, 0.8, 0.85, 0.9, 0.95].map(prob => [prob, Math.round(findXGivenProb(fr, prob))]);
+  console.log('logreg model gives for probability, index', otherProbIndexes);
+
   // Until we have this many data points about words known or not-known, keep probing
   const PROBE_UNTIL_WORD_DATA_POINTS = 100;
   if (pickerData.length < PROBE_UNTIL_WORD_DATA_POINTS) {
     // Continue to probe the user's knowledge, like a proficiency test
-    logInfo(`not enough work data, so probing`);
+    logInfo(`not enough word data to confidently model user's knowledge, so probing`);
 
     // pick an index randomly within a window of this radius around the index logistic regression gave us
     const PROBE_JITTER_RADIUS = 20;
@@ -563,6 +570,9 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
 
   // nothing due to review, and daily intro limit has been hit
   throw new Error('unimplemented: nothing due and intro limit hit');
+
+  // TODO: probe ordering indexes downward from probablyKnownIdx that are not tracked
+  // or tracked but have known-status Maybe, so as to discover any holes in the user's knowledge
 }
 
 export type Feedback =
@@ -637,6 +647,7 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
         wt.known = WordKnown.Yes;
       }
     }
+    await storeWord(wt);
   }
   for (const umt of fwr.unmatchedToks) {
     // TODO: handle
@@ -673,6 +684,7 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
       // TODO: handle FnWnA*
     }
   }
+  await storeWord(targetWordTracking);
 
   console.log('after feedback, words:', state.words);
 }
