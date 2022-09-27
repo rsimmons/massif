@@ -115,6 +115,9 @@ export interface TrackedWord extends TokenizedWord {
   // time added to database. unix time in integer seconds
   readonly timeAdded: number;
 
+  // the last time we showed this word to the user. unix time in integer seconds
+  timeLastShown: number;
+
   // notes manually added by user, if any
   readonly notes: string;
 }
@@ -612,6 +615,7 @@ function getOrCreateWordTracking(state: QuizEngineState, time: Dayjs, tword: Tok
     nextTime: 0,
     interval: 0,
     timeAdded: time.unix(),
+    timeLastShown: time.unix(),
     notes: '',
   };
 
@@ -641,7 +645,9 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
     }
 
     const wt = getOrCreateWordTracking(state, time, fw.tword);
-    // TODO: update last seen time
+
+    wt.timeLastShown = time.unix();
+
     if (feedback.kind === 'Fy') {
       const wordInSRS = (wt.status === WordStatus.Learning) || (wt.status === WordStatus.Reviewing);
       invariant((wordInSRS && (wt.known === WordKnown.SRS)) || (!wordInSRS && (wt.known !== WordKnown.SRS)));
@@ -662,6 +668,8 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
   // add target word to tracking if not already tracked
   const targetWordTracking = getOrCreateWordTracking(state, time, quiz.targetWord);
   const targetWordInSRS = (targetWordTracking.status === WordStatus.Learning) || (targetWordTracking.status === WordStatus.Reviewing);
+
+  targetWordTracking.timeLastShown = time.unix();
 
   if (feedback.kind === 'Fy') {
     if (targetWordInSRS) {

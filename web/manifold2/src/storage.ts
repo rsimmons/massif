@@ -14,6 +14,7 @@ interface DBWord {
   readonly nextTime: number;
   readonly interval: number;
   readonly timeAdded: number;
+  readonly timeLastShown: number;
   readonly notes: string;
 }
 
