@@ -329,6 +329,10 @@ async function getFragmentForTargetWord(state: QuizEngineState, tword: Tokenized
   // NOTE: This relies on the Massif search string being the same as the "spec" currently
   const fragments = await searchFragments(tword.spec);
 
+  if (fragments.results.length === 0) {
+    throw new Error(`could not find any fragments for word spec: ${tword.spec}`);
+  }
+
   const fragment = randomChoice(fragments.results);
 
   return fragment;
