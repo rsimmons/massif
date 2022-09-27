@@ -1,6 +1,7 @@
 import Dexie, { Table } from 'dexie';
 import { TrackedWord, WordStatus, DayStats, WordKnown } from './quizEngine';
 
+
 const DB_NAME = 'manifold';
 
 // This currently matches quizEngine TrackedWord, but that may not always be the case
@@ -38,6 +39,12 @@ class ManifoldDB extends Dexie {
 }
 
 const db = new ManifoldDB();
+
+// Expose the db as a global variable for messing around in the console
+declare global {
+  var manifoldDB: ManifoldDB;
+}
+globalThis.manifoldDB = db;
 
 export async function loadAllWords(): Promise<Map<number, TrackedWord>> {
   return new Map((await db.word.toArray()).map(a => [a.id, a]));
