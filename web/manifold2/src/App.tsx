@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useEffectReducer, EffectReducer, EffectsMap, InitialEffectStateGetter, EffectReducerExec } from "use-effect-reducer";
 import dayjs from 'dayjs';
 
 import { invariant, UnreachableCaseError } from './util';
-import { Feedback, getNextQuiz, initState, Quiz, QuizEngineState, QuizKind, takeFeedback } from './quizEngine';
+import { Feedback, getNextQuiz, getPlacementTest, initState, needPlacementTest, PlacementTest, Quiz, QuizEngineState, QuizKind, setOrderingIntroIdx, takeFeedback } from './quizEngine';
 import './App.css';
 import { translateText } from './massifAPI';
 
@@ -32,6 +32,9 @@ interface ManifoldState {
     } | {
       readonly mode: 'home';
     } | {
+      readonly mode: 'placementTest';
+      readonly test: PlacementTest;
+    } | {
       readonly mode: 'quizLoading';
     } | {
       readonly mode: 'quiz';
@@ -58,7 +61,12 @@ type ManifoldEvent =
   } | {
     readonly type: 'addWordPanelAdd';
   } | {
-    readonly type: 'quizBegin';
+    readonly type: 'beginStudying';
+  } | {
+    readonly type: 'placementTestRepickWords';
+  } | {
+    readonly type: 'placementTestSetIndex';
+    readonly index: number;
   } | {
     readonly type: 'quizLoaded';
     readonly quiz: Quiz;
@@ -102,7 +110,7 @@ type ManifoldEffect =
 type ManifoldDispatch = React.Dispatch<ManifoldEvent>;
 type ManifoldExec = EffectReducerExec<ManifoldState, ManifoldEvent, ManifoldEffect>;
 
-function updateStateToQuizNext(state: ManifoldState, exec: ManifoldExec): ManifoldState {
+function loadNextQuiz(state: ManifoldState, exec: ManifoldExec): ManifoldState {
   exec({
     type: 'quizLoad',
   });
@@ -146,7 +154,6 @@ function quizSubmitGrading(state: ManifoldState, exec: EffectReducerExec<Manifol
   invariant(quizCanSubmitGrading(state)); // currently redundant with above, for type narrowing purposes
 
   const feedback: Feedback = (() => {
-    console.log('quizSubmitGrading', state.mainUI);
     if (state.mainUI.fragmentUnderstood) {
       invariant(state.mainUI.targetWordKnown);
       return {kind: 'Fy'};
@@ -225,7 +232,7 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
 
       if (state.mainUI.mode === 'nothingToQuiz') {
         // this will "refresh" the quiz page if it is saying that nothing is due
-        return updateStateCoreStats(updateStateToQuizNext(afterQueueState, exec));
+        return updateStateCoreStats(loadNextQuiz(afterQueueState, exec));
       } else {
         return updateStateCoreStats(afterQueueState);
       }
@@ -233,8 +240,44 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
      return state;
     }
 
-    case 'quizBegin':
-      return updateStateCoreStats(updateStateToQuizNext(state, exec));
+    case 'beginStudying': {
+      invariant(state.qeState);
+      if (needPlacementTest(state.qeState)) {
+        const test = getPlacementTest();
+        return {
+          ...state,
+          mainUI: {
+            mode: 'placementTest',
+            test,
+          },
+        };
+      } else {
+        return updateStateCoreStats(loadNextQuiz(state, exec));
+      }
+    }
+
+    case 'placementTestRepickWords': {
+      invariant(state.qeState);
+      invariant(needPlacementTest(state.qeState));
+      const test = getPlacementTest();
+      return {
+        ...state,
+        mainUI: {
+          mode: 'placementTest',
+          test,
+        },
+      };
+    }
+
+    case 'placementTestSetIndex': {
+      invariant(state.qeState);
+
+      // this is a side-effect, but I believe it's OK to not use an effect
+      // because it's idempotent
+      setOrderingIntroIdx(state.qeState, event.index);
+
+      return state;
+    }
 
     case 'quizLoaded': {
       return {
@@ -311,7 +354,7 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
 
     case 'quizRefresh':
       invariant(state.mainUI.mode === 'nothingToQuiz');
-      return updateStateCoreStats(updateStateToQuizNext(state, exec));
+      return updateStateCoreStats(loadNextQuiz(state, exec));
 
     case 'quizLoadFragmentTranslation':
       invariant(state.mainUI.mode === 'quiz');
@@ -495,6 +538,30 @@ function maybeBoolToYN(v: boolean | null): 'y' | 'n' | null {
   }
 }
 
+const PlacementTestPanel: React.FC<{test: PlacementTest, dispatch: ManifoldDispatch}> = ({test, dispatch}) => {
+  const [selGroup, setSetGroup] = useState<number | null>(null);
+
+  return (
+    <div className="App-placement-test">
+      <div>
+        <strong>Choose a level to start learning from</strong><br/>
+        Manifold uses an ordered list of words to prioritize what it teaches you. Shown below are random sets of words, each drawn from a different range of that ordering. We recommend choosing the <em>highest level where there are more than 1 or 2 words you don't know</em>. This is the level at which around which Manifold will start suggesting words for you to study. And don't worry: 1) you can change this setting later 2) you can easily skip studying any words you already know 3) if there are words below that level you don't know, you will have a chance to fill in those gaps as well.<br />
+        <strong>Note:</strong> Words are currently shown in their most kanji-ified forms, which makes easy words hard to recognize (e.g. この is shown as 此の, する is shown as 為る). This will be fixed soon.
+      </div>
+      <div><button onClick={() => {dispatch({type: 'placementTestRepickWords'})}}>Repick Words</button></div>
+      {test.map((group, gidx) => (
+        <div key={gidx} className="App-placement-test-group">
+          <input type="radio" name="placement-test-group" id={`placement-test-group-${gidx}`} checked={gidx === selGroup} onChange={() => {console.log('chose placement group', group); setSetGroup(gidx)}} />
+          <label htmlFor={`placement-test-group-${gidx}`}>
+            <span className="App-placement-test-group-level">[Level {gidx+1}]</span> {group.words.map((word, widx) => <span key={widx} className="App-placement-test-words">{word}</span>)}
+          </label>
+        </div>
+      ))}
+      <div><button className="App-chonky-button" disabled={selGroup === null} onClick={() => {dispatch({type: 'placementTestSetIndex', index: test[selGroup!].beginIndex})}}>Set Level</button></div>
+    </div>
+  );
+}
+
 const App: React.FC = () => {
   const [state, dispatch] = useEffectReducer(reducer, createInitialState, effectsMap);
 
@@ -510,9 +577,12 @@ const App: React.FC = () => {
               case 'home':
                 return (
                   <>
-                    <button className="App-chonky-button" onClick={() => {dispatch({type: 'quizBegin'})}}>Study</button>
+                    <button className="App-chonky-button" onClick={() => {dispatch({type: 'beginStudying'})}}>Study</button>
                   </>
                 );
+
+              case 'placementTest':
+                return <PlacementTestPanel test={state.mainUI.test} dispatch={dispatch} />
 
               case 'quizLoading':
                 return (

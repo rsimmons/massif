@@ -1,8 +1,13 @@
-import Dexie, { Table } from 'dexie';
-import { TrackedWord, WordStatus, DayStats, WordKnown } from './quizEngine';
-
+import Dexie from 'dexie';
+import { TrackedWord, WordStatus, DayStats, WordKnown, Singleton } from './quizEngine';
+import { invariant } from './util';
 
 const DB_NAME = 'manifold';
+
+const INIT_SINGLETON: DBSingleton = {
+  id: 0,
+  orderingIntroIdx: null,
+};
 
 // This currently matches quizEngine TrackedWord, but that may not always be the case
 interface DBWord {
@@ -23,9 +28,15 @@ interface DBDayStats {
   readonly introCount: number;
 }
 
+interface DBSingleton {
+  readonly id: 0;
+  readonly orderingIntroIdx: number | null;
+}
+
 class ManifoldDB extends Dexie {
   word!: Dexie.Table<DBWord, number>;
   dayStats!: Dexie.Table<DBDayStats, number>;
+  singleton!: Dexie.Table<DBSingleton, number>;
 
   constructor() {
     super(DB_NAME);
@@ -35,11 +46,16 @@ class ManifoldDB extends Dexie {
     this.version(1).stores({
       word: '++id',
       dayStats: 'dayNumber',
+      singleton: 'id',
     });
   }
 }
 
 const db = new ManifoldDB();
+
+db.on('populate', () => {
+  db.singleton.add(INIT_SINGLETON);
+});
 
 // Expose the db as a global variable for messing around in the console
 declare global {
@@ -61,6 +77,19 @@ export async function loadDayStats(dayNumber: number): Promise<DayStats | undefi
 
 export async function storeDayStats(ds: DayStats): Promise<void> {
   await db.dayStats.put(ds);
+}
+
+export async function getSingleton(): Promise<Singleton> {
+  const row = await db.singleton.get(0);
+  invariant(row);
+  return row;
+}
+
+export async function setSingleton(singleton: Singleton): Promise<void> {
+  await db.singleton.put({
+    id: 0,
+    ...singleton,
+  });
 }
 
 // only used for testing

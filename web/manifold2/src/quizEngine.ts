@@ -1,13 +1,12 @@
 import dayjs, { Dayjs } from 'dayjs'
 
 import { FragmentResult, searchFragments } from './massifAPI';
-import { loadAllWords, loadDayStats, storeDayStats, storeWord } from './storage';
+import { getSingleton, loadAllWords, loadDayStats, setSingleton, storeDayStats, storeWord } from './storage';
 import { invariant, randomChoice } from './util';
 import { addWordToTrie, createEmptyTrie, findWordsInText, Trie, TrieWord } from './wordTrie';
 import { ContigTokenization, Token } from './tokenization';
 import { addWordToWordIndex, createEmptyWordIndex, getWordFromWordIndex, TokenizedWord, tokenizedWordsAreSame, WordIndex } from './word';
 import FREQ_LIST from './freqlist_drama_20k';
-import { findXGivenProb, rescaleAndFit } from './logreg';
 // import FILTERED_NORMALS_SET from './freqlist_filtered';
 
 const FURTHER_FILTERED_WORDS = new Set([
@@ -135,6 +134,10 @@ const INIT_DAY_STATS = {
   introCount: 0,
 };
 
+export interface Singleton {
+  orderingIntroIdx: number | null;
+}
+
 // mutable
 export interface QuizEngineState {
   readonly config: QuizEngineConfig;
@@ -149,6 +152,9 @@ export interface QuizEngineState {
 
   // stats about the current day
   todayStats: DayStats;
+
+  // stuff stored to the DB in a single row
+  singleton: Singleton;
 }
 
 /**
@@ -197,13 +203,72 @@ export async function initState(config: QuizEngineConfig, time: Dayjs): Promise<
   }
   invariant(todayStats !== undefined);
 
+  const singleton = await getSingleton();
+
   return {
     config,
     words,
     wordIndex,
     nextWordId,
     todayStats,
+    singleton,
   };
+}
+
+export function needPlacementTest(state: QuizEngineState): boolean {
+  return state.singleton.orderingIntroIdx === null;
+}
+
+// an ordering of word-groups
+export type PlacementTest = Array<{
+  readonly words: ReadonlyArray<string>;
+  readonly beginIndex: number;
+  readonly endIndex: number;
+}>;
+
+export function getPlacementTest(): PlacementTest {
+  const mapFwdFn = (x: number) => Math.pow(x, 1/3);
+  const mapBwdFn = (x: number) => Math.pow(x, 3);
+
+  const PLACEMENT_GROUPS = 16;
+  const WORDS_PER_GROUP = 10;
+  const PLACEMENT_LOWEST_IDX = 50;
+
+  const lo = mapFwdFn(PLACEMENT_LOWEST_IDX);
+  const hi = mapFwdFn(WORD_ORDERING.length);
+  const groups: PlacementTest = [];
+  let lastEndIdx = 0;
+  for (let g = 0; g < PLACEMENT_GROUPS; g++) {
+    const newEndIdx = Math.round(mapBwdFn(lo + (hi-lo)*g/(PLACEMENT_GROUPS-1)));
+
+    const idxs: Set<number> = new Set();
+    for (let idx = lastEndIdx; idx < newEndIdx; idx++) {
+      idxs.add(idx);
+    }
+
+    const words: Array<string> = [];
+    for (let w = 0; w < WORDS_PER_GROUP; w++) {
+      const idx = randomChoice([...idxs]);
+      words.push(WORD_ORDERING[idx]);
+      idxs.delete(idx);
+    }
+
+    groups.push({
+      words,
+      beginIndex: lastEndIdx,
+      endIndex: newEndIdx,
+    });
+    lastEndIdx = newEndIdx;
+  }
+
+  return groups;
+}
+
+// idempotent
+export function setOrderingIntroIdx(state: QuizEngineState, index: number): void {
+  logInfo(`ordering intro index set to ${index}`);
+  state.singleton.orderingIntroIdx = index;
+  setSingleton(state.singleton); // NOTE: we don't await this
 }
 
 // immutable
@@ -381,6 +446,8 @@ async function getQuizForOrderingIdx(state: QuizEngineState, quizKind: QuizKind,
 
 // mutates given state and has side effects
 export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<Quiz> {
+  invariant(state.singleton.orderingIntroIdx !== null);
+
   const dayNumber = timeToLogicalDayNum(time);
   if (state.todayStats.dayNumber !== dayNumber) {
     state.todayStats = {
@@ -394,10 +461,10 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
   const wordsAn = analyzeWords(state, time);
 
   // Build data about known/unknown words by ordering index, to be used for
-  // probing user's knowledge, suggesting SRS words to introduce, picking
+  // probing user's knowledge, suggesting SRS words to introduce, selecting
   // context fragments.
-  const pickerData: Array<[number, boolean]> = [];
-  const pickerDataIdxs: Set<number> = new Set(); // the set of idxs in pickerData
+  const orderingKnownData: Array<[number, boolean]> = [];
+  const orderingKnownDataIdxs: Set<number> = new Set(); // the set of idxs in orderingKnownData
   let lowestUnknownWordIdx: number | undefined = undefined;
   const dontSuggestSRSWordIdxs: Set<number> = new Set();
   let countKnown = 0;
@@ -427,8 +494,8 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
       const orderingIdx = getWordFromWordIndex(wordOrderingIndex, word);
 
       if (orderingIdx !== undefined) {
-        pickerData.push([orderingIdx, known]);
-        pickerDataIdxs.add(orderingIdx);
+        orderingKnownData.push([orderingIdx, known]);
+        orderingKnownDataIdxs.add(orderingIdx);
 
         if (known === false) {
           if ((lowestUnknownWordIdx === undefined) || (orderingIdx < lowestUnknownWordIdx)) {
@@ -446,99 +513,7 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
 
   // Do we have very limited data about what words (in the ordering) that the
   // user knows or doesn't know?
-  logInfo(`picker data: ${countKnown} known, ${countNotKnown} not-known, ${pickerData.length} total`);
-
-  // Add padding/dummy elements to picker data to help it give reasonable results
-  // when there is little or no actual user data
-  const PADDING_DATA: ReadonlyArray<[number, boolean]> = [
-    [-1, true],
-    [100, true],
-    [3000, false],
-    [WORD_ORDERING.length, false],
-  ];
-  const LOW_DATA_PAD_THRESH = 5;
-  const paddedPickerData: ReadonlyArray<[number, boolean]> = ((countKnown < LOW_DATA_PAD_THRESH) || (countNotKnown < LOW_DATA_PAD_THRESH)) ? [...PADDING_DATA, ...pickerData] : pickerData;
-
-  // Convert the "known" flag from boolean to int
-  const paddedNumPickerData: ReadonlyArray<[number, 0 | 1]> = paddedPickerData.map(([i, known]) => [i, known ? 1 : 0]); // convert bools to nums
-
-  const clampIndexToOrdering = (idx: number) => Math.max(Math.min(idx, WORD_ORDERING.length-1), 0);
-
-  // Determine how many iterations of logistic regression to do. As we have more data,
-  // we do fewer iterations.
-  const logRegIters = Math.min(10000, Math.ceil(100000/paddedNumPickerData.length));
-
-  // Do logistic regression, i.e. fit a logistic curve to the (padded data)
-  const LOGREG_REGULARIZATION = 0.001; // only need a little bit to prevent explosion with linearly separable data
-  const LOGREG_LEARN_RATE = 1; // this seems plenty stable, tho surely not optimal
-  const fitT0 = Date.now();
-  const fr = rescaleAndFit(paddedNumPickerData, LOGREG_REGULARIZATION, LOGREG_LEARN_RATE, logRegIters);
-  logInfo(`logistic regression took ${Math.round(Date.now()-fitT0)}ms for ${logRegIters} iterations`);
-
-  // the index (before clamping to reasonable bounds) at which the model predicts
-  // the user "probably" knows a word
-  const PROBABLY_KNOWN_PROB = 0.8; // what probability is "probably" for our purposes?
-  const unclampedProbablyKnownIdx = Math.round(findXGivenProb(fr, PROBABLY_KNOWN_PROB));
-
-  const probablyKnownIdx = clampIndexToOrdering(unclampedProbablyKnownIdx);
-
-  logInfo(`logreg model says words known with ${PROBABLY_KNOWN_PROB} prob at index ${unclampedProbablyKnownIdx} (unclamped), ${probablyKnownIdx} (clamped)`);
-
-  const otherProbIndexes = [0.5, 0.6, 0.75, 0.8, 0.85, 0.9, 0.95].map(prob => [prob, Math.round(findXGivenProb(fr, prob))]);
-  console.log('logreg model gives for probability, index', otherProbIndexes);
-
-  // Until we have this many data points about words known or not-known, keep probing
-  const PROBE_UNTIL_WORD_DATA_POINTS = 100;
-  if (pickerData.length < PROBE_UNTIL_WORD_DATA_POINTS) {
-    // Continue to probe the user's knowledge, like a proficiency test
-    logInfo(`not enough word data to confidently model user's knowledge, so probing`);
-
-    // pick an index randomly within a window of this radius around the index logistic regression gave us
-    const PROBE_JITTER_RADIUS = 20;
-
-    // find the (clamped) window indexes
-    const probeWindowMin = clampIndexToOrdering(probablyKnownIdx - PROBE_JITTER_RADIUS);
-    const probeWindowMax = clampIndexToOrdering(probablyKnownIdx + PROBE_JITTER_RADIUS);
-    const probeWindowSize = probeWindowMax - probeWindowMin;
-    invariant(probeWindowSize > 0);
-
-    // we want to avoid choosing indexes that we already have data for, so compute
-    // the set of "pickable" indexes
-    const probeWindowPickable: Set<number> = new Set();
-    for (let idx = probeWindowMin; idx < probeWindowMax; idx++) {
-      probeWindowPickable.add(idx);
-    }
-    let probeWindowCount = 0;
-    let probeWindowKnown = 0;
-    for (const [idx, known] of pickerData) {
-      if ((idx >= probeWindowMin) && (idx < probeWindowMax)) {
-        probeWindowPickable.delete(idx);
-        probeWindowCount++;
-        if (known) {
-          probeWindowKnown++;
-        }
-      }
-    }
-    invariant(probeWindowPickable.size > 0); // there must be some pickable indexes
-
-    logInfo(`clamped probe window from ${probeWindowMin} to ${probeWindowMax}, pickable fraction ${probeWindowPickable.size/(probeWindowMax-probeWindowMin)}, within window ${probeWindowKnown} known out of ${probeWindowCount} (${100*probeWindowKnown/probeWindowCount}%)`);
-
-    // do the random pick to get the jittered index
-    const jitteredProbeIdx = randomChoice([...probeWindowPickable]);
-
-    logInfo(`jittered probe index is ${jitteredProbeIdx}`);
-
-    // out of curiosity, how many word are not-known below the jittered probe index?
-    let unknownBelowCount = 0;
-    for (const [idx, known] of pickerData) {
-      if ((idx < jitteredProbeIdx) && !known) {
-        unknownBelowCount++;
-      }
-    }
-    logInfo(`${unknownBelowCount} not-known below jittered probe idx`);
-
-    return getQuizForOrderingIdx(state, QuizKind.PROBE, jitteredProbeIdx, trie);
-  }
+  logInfo(`ordering known data: ${countKnown} known, ${countNotKnown} not-known, ${orderingKnownData.length} total`);
 
   // Are there any SRS words due?
   logInfo(`${wordsAn.dueWords.length} words due for SRS`);
@@ -558,16 +533,16 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
 
     // TODO: first check words with Queued status. if so we can add to SRS right here, no need to "suggest"
 
-    // Pick a word from ordering to suggest
+    // Pick a word from ordering to suggest adding to SRS if not known
 
-    if ((lowestUnknownWordIdx !== undefined) && (lowestUnknownWordIdx <= probablyKnownIdx)) {
+    if ((lowestUnknownWordIdx !== undefined) && (lowestUnknownWordIdx <= state.singleton.orderingIntroIdx)) {
       // NOTE: This is the index of the lowest word explicitly marked not-known, not just the lowest
       // word that we are unsure about
-      logInfo(`found tracked-as-not-known word below the probably-known index (${probablyKnownIdx}) at index ${lowestUnknownWordIdx} to suggest`);
+      logInfo(`found tracked-as-not-known word below the probably-known index (${state.singleton.orderingIntroIdx}) at index ${lowestUnknownWordIdx} to suggest`);
       return getQuizForOrderingIdx(state, QuizKind.SUGGEST_SRS, lowestUnknownWordIdx, trie);
     } else {
-      // work upward from probablyKnownIdx until we find an acceptable word to suggest
-      for (let idx = probablyKnownIdx; idx < WORD_ORDERING.length; idx++) {
+      // work upward from orderingIntroIdx until we find an acceptable word to suggest
+      for (let idx = state.singleton.orderingIntroIdx; idx < WORD_ORDERING.length; idx++) {
         if (!dontSuggestSRSWordIdxs.has(idx)) {
           logInfo(`worked up from probably-known index and found acceptable word at index ${idx} to suggest`);
           return getQuizForOrderingIdx(state, QuizKind.SUGGEST_SRS, idx, trie);
@@ -577,10 +552,12 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
     }
   }
 
+  logInfo(`reached daily limit for SRS intros`);
+
   // nothing due to review, and daily intro limit has been hit
   throw new Error('unimplemented: nothing due and intro limit hit');
 
-  // TODO: probe ordering indexes downward from probablyKnownIdx that are not tracked
+  // TODO: probe ordering indexes downward from orderingIntroIdx that are not tracked
   // or tracked but have known-status Maybe, so as to discover any holes in the user's knowledge
 }
 
@@ -676,10 +653,6 @@ function updateWordForSRSFailure(tw: TrackedWord, time: Dayjs): void {
 export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Quiz, feedback: Feedback): Promise<void> {
   logInfo(`took feedback of kind ${feedback.kind}`);
 
-  // TODO: if there was an intro, update daily intro count
-
-  await storeDayStats(state.todayStats);
-
   const trie = buildWordTrie(state);
   const fwr = findWordsInFragment(quiz.fragmentText, quiz.fragmentTokenization, trie);
 
@@ -747,6 +720,8 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
         targetWordTracking.known = WordKnown.SRS;
         targetWordTracking.interval = INITIAL_INTERVAL;
         targetWordTracking.nextTime = time.unix() + INITIAL_INTERVAL;
+
+        state.todayStats.introCount++;
       } else if (feedback.kind === 'FnWnAn') {
         // Mark word as declined so that we won't suggest it again
         targetWordTracking.status = WordStatus.Declined;
@@ -754,6 +729,8 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
     }
   }
   await storeWord(targetWordTracking);
+
+  await storeDayStats(state.todayStats);
 
   console.log('after feedback, words:', state.words);
 }

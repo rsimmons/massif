@@ -93,3 +93,19 @@
 .App-quiz-other-buttons {
   font-size: 0.75em;
 }
+
+.App-placement-test {
+  text-align: left;
+}
+
+.App-placement-test-words {
+  margin-right: 1em;
+}
+
+.App-placement-test-group {
+  margin-bottom: 0.5em;
+}
+
+.App-placement-test-group-level {
+  color: grey;
+}
