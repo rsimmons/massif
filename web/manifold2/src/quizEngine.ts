@@ -116,6 +116,9 @@ export interface TrackedWord extends TokenizedWord {
   // the last time we showed this word to the user. unix time in integer seconds
   timeLastShown: number;
 
+  // the last time the `known` field was updated
+  timeKnownUpdated: number;
+
   // notes manually added by user, if any
   readonly notes: string;
 }
@@ -607,6 +610,7 @@ function getOrCreateWordTracking(state: QuizEngineState, time: Dayjs, tword: Tok
     interval: 0,
     timeAdded: time.unix(),
     timeLastShown: time.unix(),
+    timeKnownUpdated: time.unix(),
     notes: '',
   };
 
@@ -695,6 +699,7 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
         updateWordForSRSSuccess(wt, time);
       } else {
         wt.known = WordKnown.Yes;
+        wt.timeKnownUpdated = time.unix();
       }
     }
 
@@ -717,6 +722,7 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
       updateWordForSRSSuccess(targetWordTracking, time);
     } else {
       targetWordTracking.known = WordKnown.Yes;
+      targetWordTracking.timeKnownUpdated = time.unix();
     }
   } else {
     // must be Fn*
@@ -725,6 +731,7 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
         updateWordForSRSSuccess(targetWordTracking, time);
       } else {
         targetWordTracking.known = WordKnown.Yes;
+        targetWordTracking.timeKnownUpdated = time.unix();
       }
     } else {
       // must be FnWn*
@@ -732,6 +739,7 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
         updateWordForSRSFailure(targetWordTracking, time);
       } else {
         targetWordTracking.known = WordKnown.No;
+        targetWordTracking.timeKnownUpdated = time.unix();
       }
 
       // handle FnWnA*
@@ -739,6 +747,7 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
         // Add word to SRS
         targetWordTracking.status = WordStatus.Learning;
         targetWordTracking.known = WordKnown.SRS;
+        targetWordTracking.timeKnownUpdated = time.unix();
         targetWordTracking.interval = INITIAL_INTERVAL;
         targetWordTracking.nextTime = time.unix() + INITIAL_INTERVAL;
 

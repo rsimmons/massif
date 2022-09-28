@@ -20,6 +20,7 @@ interface DBWord {
   readonly interval: number;
   readonly timeAdded: number;
   readonly timeLastShown: number;
+  readonly timeKnownUpdated: number;
   readonly notes: string;
 }
 
