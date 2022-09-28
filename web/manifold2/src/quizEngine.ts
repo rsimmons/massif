@@ -529,7 +529,7 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
   // Are we still OK to suggest more words to add to SRS?
   if (state.todayStats.introCount < DAILY_INTRO_LIMIT) {
     // introduce or suggest something
-    logInfo(`looking for a word to suggest adding to SRS`);
+    logInfo(`looking for a word to suggest adding to SRS if not-known`);
 
     // TODO: first check words with Queued status. if so we can add to SRS right here, no need to "suggest"
 

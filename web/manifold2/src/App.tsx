@@ -276,7 +276,7 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
       // because it's idempotent
       setOrderingIntroIdx(state.qeState, event.index);
 
-      return state;
+      return updateStateCoreStats(loadNextQuiz(state, exec));
     }
 
     case 'quizLoaded': {
