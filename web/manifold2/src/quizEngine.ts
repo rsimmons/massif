@@ -423,6 +423,8 @@ export interface Quiz {
 async function getQuizForTargetWord(state: QuizEngineState, quizKind: QuizKind, targetWord: TokenizedWord, trie: QWordTrie): Promise<Quiz> {
   const fragment = await getFragmentForTargetWord(state, targetWord, trie);
 
+  logInfo(`got quiz for target word with spec ${targetWord.spec}`);
+
   return {
     kind: quizKind,
     fragmentText: fragment.text,
@@ -463,9 +465,9 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
   // probing user's knowledge, suggesting SRS words to introduce, selecting
   // context fragments.
   const orderingKnownData: Array<[number, boolean]> = [];
-  const orderingKnownDataIdxs: Set<number> = new Set(); // the set of idxs in orderingKnownData
   let lowestUnknownWordIdx: number | undefined = undefined;
-  const dontSuggestSRSWordIdxs: Set<number> = new Set();
+  const orderingDontSuggestForSRSIdxs: Set<number> = new Set();
+  const orderingDontProbeIdxs: Set<number> = new Set();
   let countKnown = 0;
   let countNotKnown = 0;
   for (const word of state.words.values()) {
@@ -488,24 +490,27 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
       countNotKnown++;
     }
 
-    if (known !== undefined) {
-      // look up the word to see if it is in the ordering, and if so what it's index is
-      const orderingIdx = getWordFromWordIndex(wordOrderingIndex, word);
+    // look up the word to see if it is in the ordering, and if so what it's index is
+    const orderingIdx = getWordFromWordIndex(wordOrderingIndex, word);
 
-      if (orderingIdx !== undefined) {
+    if (orderingIdx !== undefined) {
+      if (known !== undefined) {
         orderingKnownData.push([orderingIdx, known]);
-        orderingKnownDataIdxs.add(orderingIdx);
+      }
 
-        if (known === false) {
-          if ((lowestUnknownWordIdx === undefined) || (orderingIdx < lowestUnknownWordIdx)) {
-            lowestUnknownWordIdx = orderingIdx;
-          }
+      if (known === false) {
+        if ((lowestUnknownWordIdx === undefined) || (orderingIdx < lowestUnknownWordIdx)) {
+          lowestUnknownWordIdx = orderingIdx;
         }
+      }
 
-        const wordInSRS = (word.status === WordStatus.Learning) || (word.status === WordStatus.Reviewing);
-        if (wordInSRS || (word.status === WordStatus.Declined) || (known === true)) {
-          dontSuggestSRSWordIdxs.add(orderingIdx);
-        }
+      const wordInSRS = (word.status === WordStatus.Learning) || (word.status === WordStatus.Reviewing);
+      if (wordInSRS || (word.status === WordStatus.Declined) || (known === true)) {
+        orderingDontSuggestForSRSIdxs.add(orderingIdx);
+      }
+
+      if (wordInSRS || (known !== undefined)) {
+        orderingDontProbeIdxs.add(orderingIdx);
       }
     }
   }
@@ -543,7 +548,7 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
     } else {
       // work upward from orderingIntroIdx until we find an acceptable word to suggest
       for (let idx = state.singleton.orderingIntroIdx; idx < WORD_ORDERING.length; idx++) {
-        if (!dontSuggestSRSWordIdxs.has(idx)) {
+        if (!orderingDontSuggestForSRSIdxs.has(idx)) {
           logInfo(`worked up from probably-known index and found acceptable word at index ${idx} to suggest`);
           return getQuizForOrderingIdx(state, QuizKind.SUGGEST_SRS, idx, trie);
         }
@@ -552,13 +557,20 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
     }
   }
 
+  // nothing due to review, and daily intro limit has been hit
   logInfo(`reached daily limit for SRS intros`);
 
-  // nothing due to review, and daily intro limit has been hit
-  throw new Error('unimplemented: nothing due and intro limit hit');
-
-  // TODO: probe ordering indexes downward from orderingIntroIdx that are not tracked
+  // probe ordering indexes downward from orderingIntroIdx that are not tracked
   // or tracked but have known-status Maybe, so as to discover any holes in the user's knowledge
+  logInfo(`looking for for ordering word with no clear known-status below intro index`);
+  for (let idx = state.singleton.orderingIntroIdx; idx >= 0; idx--) {
+    if (!orderingDontProbeIdxs.has(idx)) {
+      logInfo(`probing at index ${idx}`);
+      return getQuizForOrderingIdx(state, QuizKind.PROBE, idx, trie);
+    }
+  }
+
+  throw new Error('unimplemented: nothing left to do');
 }
 
 export type Feedback =
@@ -740,6 +752,4 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
   await storeWord(targetWordTracking);
 
   await storeDayStats(state.todayStats);
-
-  console.log('after feedback, words:', state.words);
 }
