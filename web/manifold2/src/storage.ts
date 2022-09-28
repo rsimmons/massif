@@ -2,7 +2,7 @@ import Dexie from 'dexie';
 import { TrackedWord, WordStatus, DayStats, WordKnown, Singleton } from './quizEngine';
 import { invariant } from './util';
 
-const DB_NAME = 'manifold';
+const DEFAULT_PROFILE_DB_NAME = 'manifold-default';
 
 const INIT_SINGLETON: DBSingleton = {
   id: 0,
@@ -33,13 +33,13 @@ interface DBSingleton {
   readonly orderingIntroIdx: number | null;
 }
 
-class ManifoldDB extends Dexie {
+class ManifoldProfileDB extends Dexie {
   word!: Dexie.Table<DBWord, number>;
   dayStats!: Dexie.Table<DBDayStats, number>;
   singleton!: Dexie.Table<DBSingleton, number>;
 
   constructor() {
-    super(DB_NAME);
+    super(DEFAULT_PROFILE_DB_NAME);
 
     // NOTE: Not all fields must be specified, only the ones to be indexed on.
     // And the first field is automatically the (unique) primary key.
@@ -51,42 +51,42 @@ class ManifoldDB extends Dexie {
   }
 }
 
-const db = new ManifoldDB();
+const profileDB = new ManifoldProfileDB();
 
-db.on('populate', () => {
-  db.singleton.add(INIT_SINGLETON);
+profileDB.on('populate', () => {
+  profileDB.singleton.add(INIT_SINGLETON);
 });
 
-// Expose the db as a global variable for messing around in the console
+// Expose the current profile db as a global variable for messing around in the console
 declare global {
-  var manifoldDB: ManifoldDB;
+  var currentProfileDB: ManifoldProfileDB;
 }
-globalThis.manifoldDB = db;
+globalThis.currentProfileDB = profileDB;
 
 export async function loadAllWords(): Promise<Map<number, TrackedWord>> {
-  return new Map((await db.word.toArray()).map(a => [a.id, a]));
+  return new Map((await profileDB.word.toArray()).map(a => [a.id, a]));
 }
 
 export async function storeWord(w: TrackedWord): Promise<void> {
-  await db.word.put(w);
+  await profileDB.word.put(w);
 }
 
 export async function loadDayStats(dayNumber: number): Promise<DayStats | undefined> {
-  return await db.dayStats.get(dayNumber);
+  return await profileDB.dayStats.get(dayNumber);
 }
 
 export async function storeDayStats(ds: DayStats): Promise<void> {
-  await db.dayStats.put(ds);
+  await profileDB.dayStats.put(ds);
 }
 
 export async function getSingleton(): Promise<Singleton> {
-  const row = await db.singleton.get(0);
+  const row = await profileDB.singleton.get(0);
   invariant(row);
   return row;
 }
 
 export async function setSingleton(singleton: Singleton): Promise<void> {
-  await db.singleton.put({
+  await profileDB.singleton.put({
     id: 0,
     ...singleton,
   });
@@ -94,5 +94,5 @@ export async function setSingleton(singleton: Singleton): Promise<void> {
 
 // only used for testing
 export async function deleteDatabase(): Promise<void> {
-  await db.delete();
+  await profileDB.delete();
 }
