@@ -11,6 +11,7 @@ import FREQ_LIST from './freqlist_drama_20k';
 
 const FURTHER_FILTERED_WORDS = new Set([
   'い',
+  'フフフフフ',
 ]);
 const WORD_ORDERING = FREQ_LIST.filter(w => !FURTHER_FILTERED_WORDS.has(w));
 
@@ -41,9 +42,7 @@ const JITTER = 0.1; // as proportion of new interval after adjustment
 const INITIAL_INTERVAL = LEARNING_STEPS[0];
 const LAST_LEARNING_INTERVAL = LEARNING_STEPS[LEARNING_STEPS.length - 1];
 
-function logInfo(msg: string): void {
-  console.log(msg);
-}
+const logInfo = console.log;
 
 export interface QuizEngineConfig {
   // TODO: reference to Massif-API impl, so it can be mocked for testing
@@ -522,11 +521,12 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
 
     const targetWord = wordsAn.dueWords[0];
 
-    logInfo(`doing SRS quiz for due word spec: ${targetWord.spec}`);
+    logInfo(`doing SRS quiz for due word spec: ${targetWord.spec}`, targetWord);
     return getQuizForTargetWord(state, QuizKind.SRS_REVIEW, targetWord, trie);
   }
 
   // Are we still OK to suggest more words to add to SRS?
+  logInfo(`today's SRS intro count is ${state.todayStats.introCount}`);
   if (state.todayStats.introCount < DAILY_INTRO_LIMIT) {
     // introduce or suggest something
     logInfo(`looking for a word to suggest adding to SRS if not-known`);
@@ -610,13 +610,10 @@ function jitterInterval(iv: number): number {
 };
 
 function updateWordForSRSSuccess(tw: TrackedWord, time: Dayjs): void {
-  logInfo(`SRS success, updating word spec: ${tw.spec}`);
+  logInfo(`SRS success, updating word spec: ${tw.spec}`, tw);
 
-  if (tw.interval > LAST_LEARNING_INTERVAL) {
-    // was already graduated
-    tw.interval = Math.floor(jitterInterval(SUCCESS_MULT*tw.interval));
-  } else {
-    // was still in learning
+  if (tw.status === WordStatus.Learning) {
+    // still in learning
     let nextLearningIterval: number | undefined;
     for (const iv of LEARNING_STEPS) {
       if (iv > tw.interval) {
@@ -625,28 +622,40 @@ function updateWordForSRSSuccess(tw: TrackedWord, time: Dayjs): void {
       }
     }
     if (nextLearningIterval === undefined) {
-      // graduates
-      tw.interval = Math.floor(jitterInterval(GRADUATING_INTERVAL));
+      // no next learning interval, so graduates to reviewing
+      tw.status = WordStatus.Reviewing;
+      tw.interval = 1;
+      tw.nextTime = timeToLogicalDayNum(time) + tw.interval;
     } else {
       tw.interval = nextLearningIterval;
+      tw.nextTime = time.unix() + tw.interval;
     }
+  } else if (tw.status === WordStatus.Reviewing) {
+    tw.interval = Math.max(1, Math.floor(jitterInterval(SUCCESS_MULT*tw.interval)));
+    tw.nextTime = timeToLogicalDayNum(time) + tw.interval;
+  } else {
+    invariant(false);
   }
 
-  tw.nextTime = time.unix() + tw.interval;
+  logInfo(`word after update:`, tw);
 }
 
 function updateWordForSRSFailure(tw: TrackedWord, time: Dayjs): void {
-  logInfo(`SRS failure, updating word spec: ${tw.spec}`);
+  logInfo(`SRS failure, updating word spec: ${tw.spec}`, tw);
 
-  if (tw.interval > LAST_LEARNING_INTERVAL) {
-    // was already graduated
-    tw.interval = Math.floor(jitterInterval(Math.pow(tw.interval, FAIL_EXP)));
-  } else {
-    // was still in learning
+  if (tw.status === WordStatus.Learning) {
+    // still in learning
     tw.interval = INITIAL_INTERVAL;
+    tw.nextTime = time.unix() + tw.interval;
+  } else if (tw.status === WordStatus.Reviewing) {
+    // reviewing
+    tw.interval = Math.max(1, Math.floor(jitterInterval(Math.pow(tw.interval, FAIL_EXP))));
+    tw.nextTime = timeToLogicalDayNum(time) + tw.interval;
+  } else {
+    invariant(false);
   }
 
-  tw.nextTime = time.unix() + tw.interval;
+  logInfo(`word after update:`, tw);
 }
 
 // mutates given state and has side effects
