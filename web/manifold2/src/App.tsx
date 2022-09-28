@@ -189,9 +189,16 @@ function quizSubmitGrading(state: ManifoldState, exec: EffectReducerExec<Manifol
   };
 }
 
+// Expose the quiz engine state as a global variable for messing around in the console
+declare global {
+  var quizEngineState: QuizEngineState;
+}
+
 const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (state, event, exec) => {
   switch (event.type) {
     case 'profileLoaded':
+      globalThis.quizEngineState = event.qeState;
+
       return {
         ...state,
         mainUI: {
