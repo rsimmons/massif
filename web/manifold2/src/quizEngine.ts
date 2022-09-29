@@ -557,9 +557,13 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
 
     // first check words with Queued status. if so we can add to SRS right here, no need to "suggest"
     if (srsAn.queuedWords.length > 0) {
-      const firstQueuedWord = srsAn.queuedWords[0]
-      logInfo(`suggesting to add queued word with spec: ${firstQueuedWord.spec}`, firstQueuedWord);
-      return getQuizForTargetWord(state, QuizKind.SUGGEST_SRS, firstQueuedWord, trie);
+      const firstQueuedWord = srsAn.queuedWords[0];
+      logInfo(`intro-reviewing queued word with spec: ${firstQueuedWord.spec}`, firstQueuedWord);
+      // NOTE: We could do SUGGEST_SRS here, but the user as already added this to their queue,
+      // clearly expressing their intention to SRS it. I don't think we want to ask them again.
+      // So instead we just review it (even though it's still in Queued state), and the feedback
+      // code will add it.
+      return getQuizForTargetWord(state, QuizKind.SRS_REVIEW, firstQueuedWord, trie);
     }
 
     // Pick a word from ordering to suggest adding to SRS if not known
@@ -643,6 +647,9 @@ function getOrCreateWordTracking(state: QuizEngineState, time: Dayjs, tword: Tok
 }
 
 function addWordToSRS(tw: TrackedWord, time: Dayjs): void {
+  // make sure it's not already being SRS'd
+  invariant((tw.status !== WordStatus.Learning) && (tw.status !== WordStatus.Reviewing));
+
   tw.status = WordStatus.Learning;
   tw.known = WordKnown.SRS;
   tw.timeKnownUpdated = time.unix();
@@ -676,10 +683,10 @@ function updateWordForSRSSuccess(tw: TrackedWord, time: Dayjs): void {
       tw.nextTime = time.unix() + tw.interval;
     }
   } else if (tw.status === WordStatus.Reviewing) {
-    tw.interval = Math.max(1, Math.floor(jitterInterval(SUCCESS_MULT*tw.interval)));
+    tw.interval = Math.max(1, Math.round(jitterInterval(SUCCESS_MULT*tw.interval)));
     tw.nextTime = timeToLogicalDayNum(time) + tw.interval;
   } else {
-    invariant(false);
+    invariant(false, `updateWordForSRSSuccess: unexpected word status ${tw.status}`);
   }
 
   logInfo(`word after update:`, tw);
@@ -694,10 +701,10 @@ function updateWordForSRSFailure(tw: TrackedWord, time: Dayjs): void {
     tw.nextTime = time.unix() + tw.interval;
   } else if (tw.status === WordStatus.Reviewing) {
     // reviewing
-    tw.interval = Math.max(1, Math.floor(jitterInterval(Math.pow(tw.interval, FAIL_EXP))));
+    tw.interval = Math.max(1, Math.round(jitterInterval(Math.pow(tw.interval, FAIL_EXP))));
     tw.nextTime = timeToLogicalDayNum(time) + tw.interval;
   } else {
-    invariant(false);
+    invariant(false, `updateWordForSRSFailure: unexpected word status ${tw.status}`);
   }
 
   logInfo(`word after update:`, tw);
@@ -724,6 +731,7 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
     if (feedback.kind === 'Fy') {
       const wordInSRS = (wt.status === WordStatus.Learning) || (wt.status === WordStatus.Reviewing);
       invariant((wordInSRS && (wt.known === WordKnown.SRS)) || (!wordInSRS && (wt.known !== WordKnown.SRS)));
+      // TODO: if word is queued, should we add to SRS as we do below if it's the target?
       if (wordInSRS) {
         updateWordForSRSSuccess(wt, time);
       } else {
@@ -749,6 +757,11 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
   if (feedback.kind === 'Fy') {
     if (targetWordInSRS) {
       updateWordForSRSSuccess(targetWordTracking, time);
+    } else if (targetWordTracking.status === WordStatus.Queued) {
+      // if word is queued, add it first and then do regular update
+      addWordToSRS(targetWordTracking, time);
+      state.todayStats.introCount++;
+      updateWordForSRSSuccess(targetWordTracking, time);
     } else {
       targetWordTracking.known = WordKnown.Yes;
       targetWordTracking.timeKnownUpdated = time.unix();
@@ -758,6 +771,11 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
     if (feedback.kind === 'FnWy') {
       if (targetWordInSRS) {
         updateWordForSRSSuccess(targetWordTracking, time);
+      } else if (targetWordTracking.status === WordStatus.Queued) {
+        // if word is queued, add it first and then do regular update
+        addWordToSRS(targetWordTracking, time);
+        state.todayStats.introCount++;
+        updateWordForSRSSuccess(targetWordTracking, time);
       } else {
         targetWordTracking.known = WordKnown.Yes;
         targetWordTracking.timeKnownUpdated = time.unix();
@@ -765,6 +783,11 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
     } else {
       // must be FnWn*
       if (targetWordInSRS) {
+        updateWordForSRSFailure(targetWordTracking, time);
+      } else if (targetWordTracking.status === WordStatus.Queued) {
+        // if word is queued, add it first and then do regular update
+        addWordToSRS(targetWordTracking, time);
+        state.todayStats.introCount++;
         updateWordForSRSFailure(targetWordTracking, time);
       } else {
         targetWordTracking.known = WordKnown.No;
