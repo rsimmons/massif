@@ -165,7 +165,6 @@ function quizSubmitGrading(state: ManifoldState, exec: EffectReducerExec<Manifol
 
   const feedback: Feedback = (() => {
     if (state.mainUI.fragmentUnderstood) {
-      invariant(state.mainUI.targetWordKnown);
       return {kind: 'Fy'};
     } else {
       if (state.mainUI.targetWordKnown) {
