@@ -74,8 +74,10 @@
 }
 
 .App-quiz-fragment-text em {
-  color: #a00;
   font-style: normal;
+  box-shadow: 0 0 0px 2px red;
+  font-style: normal;
+  border-radius: 5px;
 }
 
 .App-quiz-target-text {
@@ -83,7 +85,7 @@
 }
 
 .App-quiz-space-above {
-  margin-top: 1em;
+  margin-top: 1.5em;
 }
 
 .App-quiz-big-space-above {
@@ -108,4 +110,8 @@
 
 .App-placement-test-group-level {
   color: grey;
+}
+
+.RadioButtons-below-label {
+  font-size: 1.5em;
 }

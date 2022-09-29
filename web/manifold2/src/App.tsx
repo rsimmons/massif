@@ -525,10 +525,13 @@ const StatusPanel: React.FC<{state: ManifoldState, dispatch: ManifoldDispatch}> 
   );
 }
 
-const RadioButtons: React.FC<{label: string, options: ReadonlyArray<{val: string, name: string}>, val: string | null, onUpdate: (newKey: string) => void}> = ({label, options, val, onUpdate}) => {
+const RadioButtons: React.FC<{label: string, belowLabel?: string, options: ReadonlyArray<{val: string, name: string}>, val: string | null, onUpdate: (newKey: string) => void}> = ({label, belowLabel, options, val, onUpdate}) => {
   return (
     <div>
       <div>{label}</div>
+      {belowLabel && (
+        <div className="RadioButtons-below-label">{belowLabel}</div>
+      )}
       <div>
         {options.map(option => (
           <>
@@ -665,6 +668,7 @@ const App: React.FC = () => {
                             <div className="App-quiz-space-above">
                               <RadioButtons
                                 label={'Word known?'}
+                                belowLabel={state.mainUI.quiz.targetWord.spec} // such a hack
                                 options={[
                                   {val: 'y', name: 'Yes'},
                                   {val: 'n', name: 'No'},
