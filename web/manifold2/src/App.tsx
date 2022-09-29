@@ -43,7 +43,7 @@ interface ManifoldState {
       readonly fragmentTranslation: FragmentTranslation;
       readonly fragmentUnderstood: null | boolean;
       readonly targetWordKnown: null | boolean;
-      readonly addTargetWordToSRS: null | boolean;
+      readonly addOrQueueTargetWordToSRS: null | boolean;
     } | {
       readonly mode: 'nothingToQuiz';
     };
@@ -53,6 +53,7 @@ interface ManifoldState {
     readonly srsTimeUntilNextLearningDue: number | undefined;
     readonly todayIntroCount: number;
     readonly todayIntroLimit: number;
+    readonly queuedCount: number;
   } | undefined;
 }
 
@@ -139,6 +140,7 @@ function updateStats(state: ManifoldState): ManifoldState {
       srsDueCount: srsAn.dueWords.length,
       srsTimeUntilNextLearningDue: srsAn.timeUntilNextLearning,
       ...getSRSIntroStats(state.qeState),
+      queuedCount: srsAn.queuedWords.length,
     }
   };
 }
@@ -148,10 +150,10 @@ function quizCanSubmitGrading(state: ManifoldState): boolean {
   return (state.mainUI.fragmentUnderstood !== null) && (state.mainUI.targetWordKnown !== null);
 }
 
-function quizShouldSuggestAddingToSRS(state: ManifoldState): boolean {
+function quizShouldAskAboutAddingOrQueueing(state: ManifoldState): boolean {
   invariant(state.mainUI.mode === 'quiz');
 
-  return (state.mainUI.quiz.kind === QuizKind.SUGGEST_SRS) && (state.mainUI.targetWordKnown === false);
+  return ((state.mainUI.quiz.kind === QuizKind.SUGGEST_SRS) || (state.mainUI.quiz.kind === QuizKind.SUGGEST_QUEUE)) && (state.mainUI.targetWordKnown === false);
 }
 
 function quizSubmitGrading(state: ManifoldState, exec: EffectReducerExec<ManifoldState, ManifoldEvent, ManifoldEffect>): ManifoldState {
@@ -169,7 +171,7 @@ function quizSubmitGrading(state: ManifoldState, exec: EffectReducerExec<Manifol
       if (state.mainUI.targetWordKnown) {
         return {kind: 'FnWy'};
       } else {
-        switch (state.mainUI.addTargetWordToSRS) {
+        switch (state.mainUI.addOrQueueTargetWordToSRS) {
           case null:
             return {kind: 'FnWn'};
 
@@ -304,7 +306,7 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
           fragmentTranslation: {type: 'none'},
           fragmentUnderstood: null,
           targetWordKnown: null,
-          addTargetWordToSRS: null,
+          addOrQueueTargetWordToSRS: null,
         },
       });
     }
@@ -344,7 +346,7 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
 
       // If we will suggest SRS, return this state,
       // otherwise go ahead and submit grading (we're done with quiz)
-      return quizShouldSuggestAddingToSRS(newState) ?
+      return quizShouldAskAboutAddingOrQueueing(newState) ?
         newState :
         quizSubmitGrading(newState, exec);
     }
@@ -356,7 +358,7 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
         ...state,
         mainUI: {
           ...state.mainUI,
-          addTargetWordToSRS: event.val,
+          addOrQueueTargetWordToSRS: event.val,
         },
       };
 
@@ -512,7 +514,9 @@ const StatusPanel: React.FC<{state: ManifoldState, dispatch: ManifoldDispatch}> 
         <div>
           {state.stats.todayIntroCount}/{state.stats.todayIntroLimit} daily intros done
         </div>
-        {/* <div>{state.queue.length} in queue</div> */}
+        <div>
+          {state.stats.queuedCount} words in queue
+        </div>
       </div>
       {/* <div className="App-StatusPanel-add-word">
         <AddWordPanel localState={state.addWordPanel} dispatch={dispatch} />
@@ -669,15 +673,26 @@ const App: React.FC = () => {
                                 onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateTargetWordKnown', val: newKey === 'y'})}}
                               />
                             </div>
-                            {quizShouldSuggestAddingToSRS(state) && (
+                            {quizShouldAskAboutAddingOrQueueing(state) && (
                               <div className="App-quiz-space-above">
                                 <RadioButtons
-                                  label={'Add to SRS?'}
+                                  label={(() => {
+                                    switch (state.mainUI.quiz.kind) {
+                                      case QuizKind.SUGGEST_SRS:
+                                        return 'Add to SRS?';
+
+                                      case QuizKind.SUGGEST_QUEUE:
+                                        return 'Queue for SRS?';
+
+                                      default:
+                                        invariant(false);
+                                    }
+                                  })()}
                                   options={[
                                     {val: 'y', name: 'Yes'},
                                     {val: 'n', name: 'No'},
                                   ]}
-                                  val={maybeBoolToYN(state.mainUI.addTargetWordToSRS)}
+                                  val={maybeBoolToYN(state.mainUI.addOrQueueTargetWordToSRS)}
                                   onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateAddTargetWordToSRS', val: newKey === 'y'})}}
                                 />
                               </div>

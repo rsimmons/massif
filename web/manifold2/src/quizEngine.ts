@@ -282,27 +282,35 @@ export interface SRSAnalysis {
   // seconds until the next learning-status word is due for review. this is
   // undefined if nothing is due and there are no upcoming learning reviews.
   readonly timeUntilNextLearning: number | undefined;
+
+  readonly queuedWords: ReadonlyArray<TrackedWord>;
 }
 
 export function getSRSAnalysis(state: QuizEngineState, time: Dayjs): SRSAnalysis {
   // there is not an efficient way to do this with map/filter due to iterable
   const learningWords: Array<TrackedWord> = [];
   const reviewingWords: Array<TrackedWord> = [];
-  for (const a of state.words.values()) {
-    switch (a.status) {
+  const queuedWords: Array<TrackedWord> = [];
+  for (const tw of state.words.values()) {
+    switch (tw.status) {
       case WordStatus.Learning:
-        learningWords.push(a);
+        learningWords.push(tw);
         break;
 
       case WordStatus.Reviewing:
-        reviewingWords.push(a);
+        reviewingWords.push(tw);
+        break;
+
+      case WordStatus.Queued:
+        queuedWords.push(tw);
         break;
     }
   }
 
-  // sort by ascending review time. note that rt of there are different units
+  // sort by ascending nextTime
   learningWords.sort((a, b) => a.nextTime - b.nextTime);
   reviewingWords.sort((a, b) => a.nextTime - b.nextTime);
+  queuedWords.sort((a, b) => a.nextTime - b.nextTime);
 
   const dueWords: Array<TrackedWord> = [];
 
@@ -332,6 +340,7 @@ export function getSRSAnalysis(state: QuizEngineState, time: Dayjs): SRSAnalysis
   return {
     dueWords,
     timeUntilNextLearning,
+    queuedWords,
   };
 }
 
@@ -418,7 +427,7 @@ async function getFragmentForTargetWord(state: QuizEngineState, tword: Tokenized
 export enum QuizKind {
   SRS_REVIEW = 'srs_review', // reviewing a word in SRS
   SUGGEST_SRS = 'suggest_srs', // suggesting they add a word to SRS if they don't know it
-  PROBE = 'probe', // just checking if they know the target word
+  SUGGEST_QUEUE = 'suggest_queue', // suggest queueing a word to add to SRS if they don't know it
 }
 
 // immutable
@@ -469,7 +478,7 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
 
   const trie = buildWordTrie(state);
 
-  const wordsAn = getSRSAnalysis(state, time);
+  const srsAn = getSRSAnalysis(state, time);
 
   // Build data about known/unknown words by ordering index, to be used for
   // probing user's knowledge, suggesting SRS words to introduce, selecting
@@ -514,12 +523,12 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
         }
       }
 
-      const wordInSRS = (word.status === WordStatus.Learning) || (word.status === WordStatus.Reviewing);
-      if (wordInSRS || (word.status === WordStatus.Declined) || (known === true)) {
+      const wordInSRSOrExempt = (word.status === WordStatus.Learning) || (word.status === WordStatus.Reviewing) || (word.status === WordStatus.Declined) || (word.status === WordStatus.Queued);
+      if (wordInSRSOrExempt || (known === true)) {
         orderingDontSuggestForSRSIdxs.add(orderingIdx);
       }
 
-      if (wordInSRS || (known !== undefined)) {
+      if (wordInSRSOrExempt || (known !== undefined)) {
         orderingDontProbeIdxs.add(orderingIdx);
       }
     }
@@ -530,11 +539,11 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
   logInfo(`ordering known data: ${countKnown} known, ${countNotKnown} not-known, ${orderingKnownData.length} total`);
 
   // Are there any SRS words due?
-  logInfo(`${wordsAn.dueWords.length} words due for SRS`);
-  if (wordsAn.dueWords.length > 0) {
+  logInfo(`${srsAn.dueWords.length} words due for SRS`);
+  if (srsAn.dueWords.length > 0) {
     // review due word
 
-    const targetWord = wordsAn.dueWords[0];
+    const targetWord = srsAn.dueWords[0];
 
     logInfo(`doing SRS quiz for due word spec: ${targetWord.spec}`, targetWord);
     return getQuizForTargetWord(state, QuizKind.SRS_REVIEW, targetWord, trie);
@@ -546,7 +555,12 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
     // introduce or suggest something
     logInfo(`looking for a word to suggest adding to SRS if not-known`);
 
-    // TODO: first check words with Queued status. if so we can add to SRS right here, no need to "suggest"
+    // first check words with Queued status. if so we can add to SRS right here, no need to "suggest"
+    if (srsAn.queuedWords.length > 0) {
+      const firstQueuedWord = srsAn.queuedWords[0]
+      logInfo(`suggesting to add queued word with spec: ${firstQueuedWord.spec}`, firstQueuedWord);
+      return getQuizForTargetWord(state, QuizKind.SUGGEST_SRS, firstQueuedWord, trie);
+    }
 
     // Pick a word from ordering to suggest adding to SRS if not known
 
@@ -576,7 +590,7 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
   for (let idx = state.singleton.orderingIntroIdx; idx >= 0; idx--) {
     if (!orderingDontProbeIdxs.has(idx)) {
       logInfo(`probing at index ${idx}`);
-      return getQuizForOrderingIdx(state, QuizKind.PROBE, idx, trie);
+      return getQuizForOrderingIdx(state, QuizKind.SUGGEST_QUEUE, idx, trie);
     }
   }
 
@@ -591,9 +605,9 @@ export type Feedback =
   } | {
     readonly kind: 'FnWn'; // fragment not fully understood, and target word not known
   } | {
-    readonly kind: 'FnWnAy'; // fragment not fully understood, target word not known, agreed to add to SRS
+    readonly kind: 'FnWnAy'; // fragment not fully understood, target word not known, agreed to add/queue to SRS
   } | {
-    readonly kind: 'FnWnAn'; // fragment not fully understood, target word not known, declined to add to SRS
+    readonly kind: 'FnWnAn'; // fragment not fully understood, target word not known, declined to add/queue to SRS
   };
 
 function getOrCreateWordTracking(state: QuizEngineState, time: Dayjs, tword: TokenizedWord): TrackedWord {
@@ -626,6 +640,14 @@ function getOrCreateWordTracking(state: QuizEngineState, time: Dayjs, tword: Tok
   addWordToWordIndex(state.wordIndex, newTW, newTW);
 
   return newTW;
+}
+
+function addWordToSRS(tw: TrackedWord, time: Dayjs): void {
+  tw.status = WordStatus.Learning;
+  tw.known = WordKnown.SRS;
+  tw.timeKnownUpdated = time.unix();
+  tw.interval = INITIAL_INTERVAL;
+  tw.nextTime = time.unix() + INITIAL_INTERVAL;
 }
 
 function jitterInterval(iv: number): number {
@@ -751,14 +773,13 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
 
       // handle FnWnA*
       if (feedback.kind === 'FnWnAy') {
-        // Add word to SRS
-        targetWordTracking.status = WordStatus.Learning;
-        targetWordTracking.known = WordKnown.SRS;
-        targetWordTracking.timeKnownUpdated = time.unix();
-        targetWordTracking.interval = INITIAL_INTERVAL;
-        targetWordTracking.nextTime = time.unix() + INITIAL_INTERVAL;
-
-        state.todayStats.introCount++;
+        if (state.todayStats.introCount < DAILY_INTRO_LIMIT) {
+          // Add word to SRS
+          addWordToSRS(targetWordTracking, time);
+          state.todayStats.introCount++;
+        } else {
+          targetWordTracking.status = WordStatus.Queued;
+        }
       } else if (feedback.kind === 'FnWnAn') {
         // Mark word as declined so that we won't suggest it again
         targetWordTracking.status = WordStatus.Declined;
