@@ -779,6 +779,7 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
           state.todayStats.introCount++;
         } else {
           targetWordTracking.status = WordStatus.Queued;
+          targetWordTracking.nextTime = time.unix();
         }
       } else if (feedback.kind === 'FnWnAn') {
         // Mark word as declined so that we won't suggest it again
