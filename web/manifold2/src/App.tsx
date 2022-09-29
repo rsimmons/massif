@@ -3,7 +3,7 @@ import { useEffectReducer, EffectReducer, EffectsMap, InitialEffectStateGetter, 
 import dayjs from 'dayjs';
 
 import { invariant, UnreachableCaseError } from './util';
-import { Feedback, getNextQuiz, getPlacementTest, initState, needPlacementTest, PlacementTest, Quiz, QuizEngineState, QuizKind, setOrderingIntroIdx, takeFeedback } from './quizEngine';
+import { getSRSAnalysis, Feedback, getNextQuiz, getPlacementTest, initState, needPlacementTest, PlacementTest, Quiz, QuizEngineState, QuizKind, setOrderingIntroIdx, takeFeedback, SRSAnalysis, getSRSIntroStats } from './quizEngine';
 import './App.css';
 import { translateText } from './massifAPI';
 
@@ -48,7 +48,12 @@ interface ManifoldState {
       readonly mode: 'nothingToQuiz';
     };
   readonly addWordPanel: AddWordPanelState;
-  // readonly atomsAn: AtomsAnalysis; // used for stats display
+  readonly stats: {
+    readonly srsDueCount: number;
+    readonly srsTimeUntilNextLearningDue: number | undefined;
+    readonly todayIntroCount: number;
+    readonly todayIntroLimit: number;
+  } | undefined;
 }
 
 type ManifoldEvent =
@@ -123,16 +128,19 @@ function loadNextQuiz(state: ManifoldState, exec: ManifoldExec): ManifoldState {
   };
 }
 
-function updateStateCoreStats(state: ManifoldState): ManifoldState {
-  return state;
-  /*
-  const atomsAn = analyzeAtoms(state.atoms);
+function updateStats(state: ManifoldState): ManifoldState {
+  invariant(state.qeState);
+
+  const srsAn = getSRSAnalysis(state.qeState, dayjs());
 
   return {
     ...state,
-    atomsAn,
+    stats: {
+      srsDueCount: srsAn.dueWords.length,
+      srsTimeUntilNextLearningDue: srsAn.timeUntilNextLearning,
+      ...getSRSIntroStats(state.qeState),
+    }
   };
-  */
 }
 
 function quizCanSubmitGrading(state: ManifoldState): boolean {
@@ -199,13 +207,13 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
     case 'profileLoaded':
       globalThis.quizEngineState = event.qeState;
 
-      return {
+      return updateStats({
         ...state,
         mainUI: {
           mode: 'home',
         },
         qeState: event.qeState,
-      };
+      });
 
     case 'addWordPanelUpdateWord':
       return {
@@ -239,9 +247,9 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
 
       if (state.mainUI.mode === 'nothingToQuiz') {
         // this will "refresh" the quiz page if it is saying that nothing is due
-        return updateStateCoreStats(loadNextQuiz(afterQueueState, exec));
+        return updateStats(loadNextQuiz(afterQueueState, exec));
       } else {
-        return updateStateCoreStats(afterQueueState);
+        return updateStats(afterQueueState);
       }
       */
      return state;
@@ -259,7 +267,7 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
           },
         };
       } else {
-        return updateStateCoreStats(loadNextQuiz(state, exec));
+        return loadNextQuiz(state, exec);
       }
     }
 
@@ -283,11 +291,11 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
       // because it's idempotent
       setOrderingIntroIdx(state.qeState, event.index);
 
-      return updateStateCoreStats(loadNextQuiz(state, exec));
+      return loadNextQuiz(state, exec);
     }
 
     case 'quizLoaded': {
-      return {
+      return updateStats({
         ...state,
         mainUI: {
           mode: 'quiz',
@@ -296,10 +304,9 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
           fragmentTranslation: {type: 'none'},
           fragmentUnderstood: null,
           targetWordKnown: null,
-          targetNotInFragment: false,
           addTargetWordToSRS: null,
         },
-      };
+      });
     }
 
     case 'quizRevealGrading':
@@ -361,7 +368,7 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
 
     case 'quizRefresh':
       invariant(state.mainUI.mode === 'nothingToQuiz');
-      return updateStateCoreStats(loadNextQuiz(state, exec));
+      return loadNextQuiz(state, exec);
 
     case 'quizLoadFragmentTranslation':
       invariant(state.mainUI.mode === 'quiz');
@@ -459,7 +466,7 @@ const effectsMap: EffectsMap<ManifoldState, ManifoldEvent, ManifoldEffect> = {
 const createInitialState: InitialEffectStateGetter<ManifoldState, ManifoldEvent, ManifoldEffect> = (exec) => {
   exec({type: 'profileLoad'});
 
-  return updateStateCoreStats({
+  return {
     qeState: undefined,
     mainUI: {
       mode: 'loading',
@@ -467,7 +474,8 @@ const createInitialState: InitialEffectStateGetter<ManifoldState, ManifoldEvent,
     addWordPanel: {
       text: '',
     },
-  });
+    stats: undefined,
+  };
 }
 
 // this may render to the opened panel or just the button
@@ -484,38 +492,34 @@ const AddWordPanel: React.FC<{localState: AddWordPanelState, dispatch: ManifoldD
   );
 }
 
-/*
 const StatusPanel: React.FC<{state: ManifoldState, dispatch: ManifoldDispatch}> = ({state, dispatch}) => {
+  invariant(state.stats);
+
   return (
     <div className="App-StatusPanel">
       <div className="App-StatusPanel-stats">
         <div>
           {(() => {
-            const dueAtoms = state.atomsAn.dueAtoms;
-            switch (dueAtoms.type) {
-              case 'noAtoms':
-                return null;
-
-              case 'notYet':
-                return <>{dueAtoms.timeUntilNextDue}s until due</>
-
-              case 'present':
-                return <>{dueAtoms.atoms.length} due now</>
-
-              default:
-                throw new UnreachableCaseError(dueAtoms);
+            if (state.stats.srsDueCount > 0) {
+              return <>{state.stats.srsDueCount} due now</>
+            } else if (state.stats.srsTimeUntilNextLearningDue !== undefined) {
+              return <>{state.stats.srsTimeUntilNextLearningDue}s until due</>
+            } else {
+              return <>nothing due for review</>
             }
           })()}
         </div>
-        <div>{state.queue.length} in queue</div>
+        <div>
+          {state.stats.todayIntroCount}/{state.stats.todayIntroLimit} daily intros done
+        </div>
+        {/* <div>{state.queue.length} in queue</div> */}
       </div>
-      <div className="App-StatusPanel-add-word">
+      {/* <div className="App-StatusPanel-add-word">
         <AddWordPanel localState={state.addWordPanel} dispatch={dispatch} />
-      </div>
+      </div> */}
     </div>
   );
 }
-*/
 
 const RadioButtons: React.FC<{label: string, options: ReadonlyArray<{val: string, name: string}>, val: string | null, onUpdate: (newKey: string) => void}> = ({label, options, val, onUpdate}) => {
   return (
@@ -574,127 +578,135 @@ const App: React.FC = () => {
 
   return (
     <div className="App">
-      {state.mainUI.mode === 'loading' ? (
-        <div>loading...</div>
-      ) : (<>
-        {/* <StatusPanel state={state} dispatch={dispatch} /> */}
-        <div className="App-main-area">
-          {(() => {
-            switch (state.mainUI.mode) {
-              case 'home':
-                return (
-                  <>
-                    <button className="App-chonky-button" onClick={() => {dispatch({type: 'beginStudying'})}}>Study</button>
-                  </>
-                );
+      {(() => {
+        if (state.mainUI.mode === 'loading') {
+          return <div>loading...</div>;
+        }
 
-              case 'placementTest':
-                return <PlacementTestPanel test={state.mainUI.test} dispatch={dispatch} />
+        invariant(state.qeState);
 
-              case 'quizLoading':
-                return (
-                  <>
-                    loading...
-                  </>
-                );
+        return (<>
+          {!needPlacementTest(state.qeState) &&
+            <StatusPanel state={state} dispatch={dispatch} />
+          }
+          <div className="App-main-area">
+            {(() => {
+              switch (state.mainUI.mode) {
+                case 'home':
+                  return (
+                    <>
+                      <button className="App-chonky-button" onClick={() => {dispatch({type: 'beginStudying'})}}>Study</button>
+                    </>
+                  );
 
-              case 'quiz':
-                return (
-                  <>
-                    <div className="App-quiz-fragment-text">
-                      {(state.mainUI.gradingRevealed && (state.mainUI.fragmentUnderstood !== null)) ? (
-                        <span dangerouslySetInnerHTML={{__html: state.mainUI.quiz.fragmentHighlightedHTML}}></span>
-                      ) : (
-                        <>{state.mainUI.quiz.fragmentText}</>
-                      )}
-                    </div>
-                    {state.mainUI.gradingRevealed ? (
-                      <div>
-                        {/* <div className="App-quiz-space-above">
-                          <div>Target</div>
-                          <div className="App-quiz-target-text">{state.mainUI.targetAtom.searchString}</div>
-                        </div> */}
-                        <div className="App-quiz-space-above" style={{minHeight: '3em'}}>
-                          <div>Translation (DeepL 🤖)</div>
-                          <div>
-                            {(() => {
-                              const ft = state.mainUI.fragmentTranslation;
-                              switch (ft.type) {
-                                case 'none':
-                                  return <button className="App-small-button" onClick={() => {dispatch({type: 'quizLoadFragmentTranslation'})}}>Load</button>
+                case 'placementTest':
+                  return <PlacementTestPanel test={state.mainUI.test} dispatch={dispatch} />
 
-                                case 'loading':
-                                  return <>Loading...</>
+                case 'quizLoading':
+                  return (
+                    <>
+                      loading...
+                    </>
+                  );
 
-                                case 'loaded':
-                                  return <>{ft.translation}</>
+                case 'quiz':
+                  return (
+                    <>
+                      <div className="App-quiz-fragment-text">
+                        {(state.mainUI.gradingRevealed && (state.mainUI.fragmentUnderstood !== null)) ? (
+                          <span dangerouslySetInnerHTML={{__html: state.mainUI.quiz.fragmentHighlightedHTML}}></span>
+                        ) : (
+                          <>{state.mainUI.quiz.fragmentText}</>
+                        )}
+                      </div>
+                      {state.mainUI.gradingRevealed ? (
+                        <div>
+                          {/* <div className="App-quiz-space-above">
+                            <div>Target</div>
+                            <div className="App-quiz-target-text">{state.mainUI.targetAtom.searchString}</div>
+                          </div> */}
+                          <div className="App-quiz-space-above" style={{minHeight: '3em'}}>
+                            <div>Translation (DeepL 🤖)</div>
+                            <div>
+                              {(() => {
+                                const ft = state.mainUI.fragmentTranslation;
+                                switch (ft.type) {
+                                  case 'none':
+                                    return <button className="App-small-button" onClick={() => {dispatch({type: 'quizLoadFragmentTranslation'})}}>Load</button>
 
-                                default:
-                                  throw new UnreachableCaseError(ft);
-                              }
-                            })()}
+                                  case 'loading':
+                                    return <>Loading...</>
+
+                                  case 'loaded':
+                                    return <>{ft.translation}</>
+
+                                  default:
+                                    throw new UnreachableCaseError(ft);
+                                }
+                              })()}
+                            </div>
                           </div>
-                        </div>
-                        <div className="App-quiz-space-above">
-                          <RadioButtons
-                            label={'Read+understood?'}
-                            options={[
-                              {val: 'y', name: 'Yes'},
-                              {val: 'n', name: 'No'},
-                            ]}
-                            val={maybeBoolToYN(state.mainUI.fragmentUnderstood)}
-                            onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateFragmentUnderstood', val: newKey === 'y'})}}
-                          />
-                        </div>
-                        {(state.mainUI.fragmentUnderstood !== null) && (<>
                           <div className="App-quiz-space-above">
                             <RadioButtons
-                              label={'Word known?'}
+                              label={'Read+understood?'}
                               options={[
                                 {val: 'y', name: 'Yes'},
                                 {val: 'n', name: 'No'},
                               ]}
-                              val={maybeBoolToYN(state.mainUI.targetWordKnown)}
-                              onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateTargetWordKnown', val: newKey === 'y'})}}
+                              val={maybeBoolToYN(state.mainUI.fragmentUnderstood)}
+                              onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateFragmentUnderstood', val: newKey === 'y'})}}
                             />
                           </div>
-                          {quizShouldSuggestAddingToSRS(state) && (
+                          {(state.mainUI.fragmentUnderstood !== null) && (<>
                             <div className="App-quiz-space-above">
                               <RadioButtons
-                                label={'Add to SRS?'}
+                                label={'Word known?'}
                                 options={[
                                   {val: 'y', name: 'Yes'},
                                   {val: 'n', name: 'No'},
                                 ]}
-                                val={maybeBoolToYN(state.mainUI.addTargetWordToSRS)}
-                                onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateAddTargetWordToSRS', val: newKey === 'y'})}}
+                                val={maybeBoolToYN(state.mainUI.targetWordKnown)}
+                                onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateTargetWordKnown', val: newKey === 'y'})}}
                               />
                             </div>
-                          )}
-                        </>)}
-                      </div>
-                    ) : (
-                      <div className="App-quiz-big-space-above">
-                        <button className="App-chonky-button" onClick={() => {dispatch({type: 'quizRevealGrading'})}}>Continue</button>
-                      </div>
-                    )}
-                  </>
-                );
+                            {quizShouldSuggestAddingToSRS(state) && (
+                              <div className="App-quiz-space-above">
+                                <RadioButtons
+                                  label={'Add to SRS?'}
+                                  options={[
+                                    {val: 'y', name: 'Yes'},
+                                    {val: 'n', name: 'No'},
+                                  ]}
+                                  val={maybeBoolToYN(state.mainUI.addTargetWordToSRS)}
+                                  onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateAddTargetWordToSRS', val: newKey === 'y'})}}
+                                />
+                              </div>
+                            )}
+                          </>)}
+                        </div>
+                      ) : (
+                        <div className="App-quiz-big-space-above">
+                          <button className="App-chonky-button" onClick={() => {dispatch({type: 'quizRevealGrading'})}}>Continue</button>
+                        </div>
+                      )}
+                    </>
+                  );
 
-              case 'nothingToQuiz':
-                return (
-                  <>
-                    <div>Nothing due to review</div>
-                    <div className="App-quiz-space-above"><button className="App-chonky-button" onClick={() => {dispatch({type: 'quizRefresh'})}}>Refresh</button></div>
-                  </>
-                );
+                case 'nothingToQuiz':
+                  return (
+                    <>
+                      <div>Nothing due to review</div>
+                      <div className="App-quiz-space-above"><button className="App-chonky-button" onClick={() => {dispatch({type: 'quizRefresh'})}}>Refresh</button></div>
+                    </>
+                  );
 
-              default:
-                throw new UnreachableCaseError(state.mainUI);
-            }
-          })()}
-        </div>
-      </>)}
+                default:
+                  throw new UnreachableCaseError(state.mainUI);
+              }
+            })()}
+          </div>
+        </>);
+      })()}
     </div>
   );
 }

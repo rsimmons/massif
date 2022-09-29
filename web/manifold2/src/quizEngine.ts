@@ -274,7 +274,7 @@ export function setOrderingIntroIdx(state: QuizEngineState, index: number): void
 }
 
 // immutable
-interface WordsAnalysis {
+export interface SRSAnalysis {
   // words due for review now. highest-priority word will be first
   readonly dueWords: ReadonlyArray<TrackedWord>;
 
@@ -284,7 +284,7 @@ interface WordsAnalysis {
   readonly timeUntilNextLearning: number | undefined;
 }
 
-function analyzeWords(state: QuizEngineState, time: Dayjs): WordsAnalysis {
+export function getSRSAnalysis(state: QuizEngineState, time: Dayjs): SRSAnalysis {
   // there is not an efficient way to do this with map/filter due to iterable
   const learningWords: Array<TrackedWord> = [];
   const reviewingWords: Array<TrackedWord> = [];
@@ -332,6 +332,13 @@ function analyzeWords(state: QuizEngineState, time: Dayjs): WordsAnalysis {
   return {
     dueWords,
     timeUntilNextLearning,
+  };
+}
+
+export function getSRSIntroStats(state: QuizEngineState): {todayIntroCount: number, todayIntroLimit: number} {
+  return {
+    todayIntroCount: state.todayStats.introCount,
+    todayIntroLimit: DAILY_INTRO_LIMIT,
   };
 }
 
@@ -462,7 +469,7 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
 
   const trie = buildWordTrie(state);
 
-  const wordsAn = analyzeWords(state, time);
+  const wordsAn = getSRSAnalysis(state, time);
 
   // Build data about known/unknown words by ordering index, to be used for
   // probing user's knowledge, suggesting SRS words to introduce, selecting
