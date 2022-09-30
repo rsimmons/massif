@@ -50,6 +50,7 @@ interface ManifoldState {
   readonly addWordPanel: AddWordPanelState;
   readonly stats: {
     readonly srsDueCount: number;
+    readonly srsDueSoonCount: number;
     readonly srsTimeUntilNextLearningDue: number | undefined;
     readonly todayIntroCount: number;
     readonly todayIntroLimit: number;
@@ -132,13 +133,15 @@ function loadNextQuiz(state: ManifoldState, exec: ManifoldExec): ManifoldState {
 function updateStats(state: ManifoldState): ManifoldState {
   invariant(state.qeState);
 
-  const srsAn = getSRSAnalysis(state.qeState, dayjs());
+  const time = dayjs();
+  const srsAn = getSRSAnalysis(state.qeState, time);
 
   return {
     ...state,
     stats: {
       srsDueCount: srsAn.dueWords.length,
-      srsTimeUntilNextLearningDue: srsAn.timeUntilNextLearning,
+      srsDueSoonCount: srsAn.dueSoonWords.length,
+      srsTimeUntilNextLearningDue: (srsAn.dueSoonWords.length > 0) ? (srsAn.dueSoonWords[0].nextTime - time.unix()) : undefined,
       ...getSRSIntroStats(state.qeState),
       queuedCount: srsAn.queuedWords.length,
     }
@@ -502,11 +505,12 @@ const StatusPanel: React.FC<{state: ManifoldState, dispatch: ManifoldDispatch}> 
         <div>
           {(() => {
             if (state.stats.srsDueCount > 0) {
-              return <>{state.stats.srsDueCount} due now</>
-            } else if (state.stats.srsTimeUntilNextLearningDue !== undefined) {
-              return <>{state.stats.srsTimeUntilNextLearningDue}s until due</>
+              return <>{state.stats.srsDueCount} due now{(state.stats.srsDueSoonCount > 0) && <>, {state.stats.srsDueSoonCount} due soon</> }</>
+            } else if (state.stats.srsDueSoonCount > 0) {
+              invariant(state.stats.srsTimeUntilNextLearningDue !== undefined);
+              return <>{state.stats.srsDueSoonCount} due soon, {state.stats.srsTimeUntilNextLearningDue}s until next</>
             } else {
-              return <>nothing due for review</>
+              return <>nothing for review today</>
             }
           })()}
         </div>
@@ -514,7 +518,7 @@ const StatusPanel: React.FC<{state: ManifoldState, dispatch: ManifoldDispatch}> 
           {state.stats.todayIntroCount}/{state.stats.todayIntroLimit} daily intros done
         </div>
         <div>
-          {state.stats.queuedCount} words in queue
+          {state.stats.queuedCount} in queue
         </div>
       </div>
       {/* <div className="App-StatusPanel-add-word">

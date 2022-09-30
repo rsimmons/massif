@@ -278,10 +278,8 @@ export interface SRSAnalysis {
   // words due for review now. highest-priority word will be first
   readonly dueWords: ReadonlyArray<TrackedWord>;
 
-  // if defined and >0, there must be no dueWords, and this is the time in
-  // seconds until the next learning-status word is due for review. this is
-  // undefined if nothing is due and there are no upcoming learning reviews.
-  readonly timeUntilNextLearning: number | undefined;
+  // words that will be due today but are not due yet (must be in learning state)
+  readonly dueSoonWords: ReadonlyArray<TrackedWord>;
 
   readonly queuedWords: ReadonlyArray<TrackedWord>;
 }
@@ -313,19 +311,15 @@ export function getSRSAnalysis(state: QuizEngineState, time: Dayjs): SRSAnalysis
   queuedWords.sort((a, b) => a.nextTime - b.nextTime);
 
   const dueWords: Array<TrackedWord> = [];
+  const dueSoonWords: Array<TrackedWord> = [];
 
   // handle words with learning status
   const unixTime = time.unix();
-  let timeUntilNextLearning: number | undefined = undefined;
-  for (const a of learningWords) {
-    if (a.nextTime <= unixTime) {
-      dueWords.push(a);
-      timeUntilNextLearning = 0;
+  for (const w of learningWords) {
+    if (w.nextTime <= unixTime) {
+      dueWords.push(w);
     } else {
-      if (dueWords.length === 0) {
-        timeUntilNextLearning = a.nextTime - unixTime;
-      }
-      break;
+      dueSoonWords.push(w);
     }
   }
 
@@ -339,7 +333,7 @@ export function getSRSAnalysis(state: QuizEngineState, time: Dayjs): SRSAnalysis
 
   return {
     dueWords,
-    timeUntilNextLearning,
+    dueSoonWords,
     queuedWords,
   };
 }
