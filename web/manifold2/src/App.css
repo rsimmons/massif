@@ -71,6 +71,7 @@
 
 .App-quiz-fragment-text {
   font-size: 2em;
+  padding: 2px 0; /* trying to address iOS bug with box-shadow on em getting clipped */
 }
 
 .App-quiz-fragment-text em {
