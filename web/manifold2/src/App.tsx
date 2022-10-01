@@ -41,9 +41,10 @@ interface ManifoldState {
       readonly quiz: Quiz;
       readonly gradingRevealed: boolean;
       readonly fragmentTranslation: FragmentTranslation;
-      readonly fragmentUnderstood: null | boolean;
-      readonly targetWordKnown: null | boolean;
-      readonly addOrQueueTargetWordToSRS: null | boolean;
+      readonly fragmentUnderstood: boolean | undefined;
+      readonly targetWordKnown: boolean | undefined;
+      readonly targetWordProblemPanelShown: boolean;
+      readonly targetWordNotInFragment: boolean;
     } | {
       readonly mode: 'nothingToQuiz';
     };
@@ -86,10 +87,13 @@ type ManifoldEvent =
     readonly type: 'quizUpdateTargetWordKnown';
     readonly val: boolean;
   } | {
-    readonly type: 'quizUpdateAddTargetWordToSRS';
-    readonly val: boolean;
+    readonly type: 'quizTargetWordHasProblem';
   } | {
-    readonly type: 'quizSubmitGrading';
+    readonly type: 'quizTargetWordIgnore';
+  } | {
+    readonly type: 'quizTargetToggleWordNotInFragment';
+  } | {
+    readonly type: 'quizTargetWordAgreeToSRS';
   } | {
     readonly type: 'quizRefresh';
   } | {
@@ -153,39 +157,28 @@ function quizCanSubmitGrading(state: ManifoldState): boolean {
   return (state.mainUI.fragmentUnderstood !== null) && (state.mainUI.targetWordKnown !== null);
 }
 
-function quizShouldAskAboutAddingOrQueueing(state: ManifoldState): boolean {
+function quizShouldAskAgreeToSRS(state: ManifoldState): boolean {
   invariant(state.mainUI.mode === 'quiz');
 
   return ((state.mainUI.quiz.kind === QuizKind.SUGGEST_SRS) || (state.mainUI.quiz.kind === QuizKind.SUGGEST_QUEUE)) && (state.mainUI.targetWordKnown === false);
 }
 
-function quizSubmitGrading(state: ManifoldState, exec: EffectReducerExec<ManifoldState, ManifoldEvent, ManifoldEffect>): ManifoldState {
+// we take extra as a parameter because we don't store those fields as state,
+// we submit as soon as they are chosen
+function quizSubmitGrading(state: ManifoldState, extra: {targetWordIgnored: boolean, targetWordAgreedToSRS: boolean}, exec: EffectReducerExec<ManifoldState, ManifoldEvent, ManifoldEffect>): ManifoldState {
   invariant(state.mainUI.mode === 'quiz');
-  invariant(state.mainUI.fragmentUnderstood !== null);
-  invariant(state.mainUI.targetWordKnown !== null);
+  invariant(state.mainUI.fragmentUnderstood !== undefined);
+  invariant((state.mainUI.targetWordKnown !== undefined) || extra.targetWordIgnored);
 
   invariant(quizCanSubmitGrading(state)); // currently redundant with above, for type narrowing purposes
 
-  const feedback: Feedback = (() => {
-    if (state.mainUI.fragmentUnderstood) {
-      return {kind: 'Fy'};
-    } else {
-      if (state.mainUI.targetWordKnown) {
-        return {kind: 'FnWy'};
-      } else {
-        switch (state.mainUI.addOrQueueTargetWordToSRS) {
-          case null:
-            return {kind: 'FnWn'};
-
-          case true:
-            return {kind: 'FnWnAy'};
-
-          case false:
-            return {kind: 'FnWnAn'};
-        }
-      }
-    }
-  })();
+  const feedback: Feedback = {
+    fragmentUnderstood: state.mainUI.fragmentUnderstood,
+    targetWordKnown: state.mainUI.targetWordKnown,
+    targetWordIgnored: extra.targetWordIgnored,
+    targetWordAgreedToSRS: extra.targetWordAgreedToSRS,
+    targetWordNotInFragment: state.mainUI.targetWordNotInFragment,
+  };
 
   exec({
     type: 'quizTakeFeedbackAndLoadNext',
@@ -306,9 +299,10 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
           quiz: event.quiz,
           gradingRevealed: false,
           fragmentTranslation: {type: 'none'},
-          fragmentUnderstood: null,
-          targetWordKnown: null,
-          addOrQueueTargetWordToSRS: null,
+          fragmentUnderstood: undefined,
+          targetWordKnown: undefined,
+          targetWordProblemPanelShown: false,
+          targetWordNotInFragment: false,
         },
       });
     }
@@ -348,27 +342,40 @@ const reducer: EffectReducer<ManifoldState, ManifoldEvent, ManifoldEffect> = (st
 
       // If we will suggest SRS, return this state,
       // otherwise go ahead and submit grading (we're done with quiz)
-      return quizShouldAskAboutAddingOrQueueing(newState) ?
+      return quizShouldAskAgreeToSRS(newState) ?
         newState :
-        quizSubmitGrading(newState, exec);
+        quizSubmitGrading(newState, {targetWordIgnored: false, targetWordAgreedToSRS: false}, exec);
     }
 
-    case 'quizUpdateAddTargetWordToSRS': {
+    case 'quizTargetWordHasProblem':
       invariant(state.mainUI.mode === 'quiz');
-
-      const newState: ManifoldState = {
+      return {
         ...state,
         mainUI: {
           ...state.mainUI,
-          addOrQueueTargetWordToSRS: event.val,
+          targetWordProblemPanelShown: true,
         },
       };
 
-      return quizSubmitGrading(newState, exec);
-    }
+    case 'quizTargetWordIgnore':
+      invariant(state.mainUI.mode === 'quiz');
 
-    case 'quizSubmitGrading':
-      return quizSubmitGrading(state, exec);
+      return quizSubmitGrading(state, {targetWordIgnored: true, targetWordAgreedToSRS: false}, exec);
+
+    case 'quizTargetToggleWordNotInFragment':
+      invariant(state.mainUI.mode === 'quiz');
+      return {
+        ...state,
+        mainUI: {
+          ...state.mainUI,
+          targetWordNotInFragment: !state.mainUI.targetWordNotInFragment,
+        },
+      };
+
+    case 'quizTargetWordAgreeToSRS':
+      invariant(state.mainUI.mode === 'quiz');
+
+      return quizSubmitGrading(state, {targetWordIgnored: false, targetWordAgreedToSRS: true}, exec);
 
     case 'quizRefresh':
       invariant(state.mainUI.mode === 'nothingToQuiz');
@@ -528,31 +535,25 @@ const StatusPanel: React.FC<{state: ManifoldState, dispatch: ManifoldDispatch}> 
   );
 }
 
-const RadioButtons: React.FC<{label: string, belowLabel?: string, options: ReadonlyArray<{val: string, name: string}>, val: string | null, onUpdate: (newKey: string) => void}> = ({label, belowLabel, options, val, onUpdate}) => {
+const RadioButtons: React.FC<{options: ReadonlyArray<{val: string, name: string}>, val: string | null, onUpdate: (newKey: string) => void}> = ({options, val, onUpdate}) => {
   return (
     <div>
-      <div>{label}</div>
-      {belowLabel && (
-        <div className="RadioButtons-below-label">{belowLabel}</div>
-      )}
-      <div>
-        {options.map(option => (
-          <>
-            <button
-              key={option.val}
-              onClick={() => {onUpdate(option.val)}}
-              className={'App-chonky-button' + ((val === option.val) ? ' App-button-selected' : '')}
-            >{option.name}</button>
-            {' '}
-          </>
-        ))}
-      </div>
+      {options.map(option => (
+        <>
+          <button
+            key={option.val}
+            onClick={() => {onUpdate(option.val)}}
+            className={'App-chonky-button' + ((val === option.val) ? ' App-button-selected' : '')}
+          >{option.name}</button>
+          {' '}
+        </>
+      ))}
     </div>
   );
 }
 
-function maybeBoolToYN(v: boolean | null): 'y' | 'n' | null {
-  if (v === null) {
+function maybeBoolToYN(v: boolean | undefined): 'y' | 'n' | null {
+  if (v === undefined) {
     return null;
   } else {
     return v ? 'y' : 'n';
@@ -636,7 +637,7 @@ const App: React.FC = () => {
                             <div className="App-quiz-target-text">{state.mainUI.targetAtom.searchString}</div>
                           </div> */}
                           <div className="App-quiz-space-above" style={{minHeight: '3em'}}>
-                            <div>Translation (DeepL 🤖)</div>
+                            <div className="App-quiz-section-label">🤖 Translation</div>
                             <div>
                               {(() => {
                                 const ft = state.mainUI.fragmentTranslation;
@@ -657,50 +658,81 @@ const App: React.FC = () => {
                             </div>
                           </div>
                           <div className="App-quiz-space-above">
-                            <RadioButtons
-                              label={'Read+understood?'}
-                              options={[
-                                {val: 'y', name: 'Yes'},
-                                {val: 'n', name: 'No'},
-                              ]}
-                              val={maybeBoolToYN(state.mainUI.fragmentUnderstood)}
-                              onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateFragmentUnderstood', val: newKey === 'y'})}}
-                            />
-                          </div>
-                          {(state.mainUI.fragmentUnderstood !== null) && (<>
-                            <div className="App-quiz-space-above">
+                            <div className="App-quiz-section-label">Read & Understood?</div>
+                            <div style={{marginTop: '0.5em'}}>
                               <RadioButtons
-                                label={'Word known?'}
-                                belowLabel={state.mainUI.quiz.targetWord.spec} // such a hack
                                 options={[
                                   {val: 'y', name: 'Yes'},
                                   {val: 'n', name: 'No'},
                                 ]}
-                                val={maybeBoolToYN(state.mainUI.targetWordKnown)}
-                                onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateTargetWordKnown', val: newKey === 'y'})}}
+                                val={maybeBoolToYN(state.mainUI.fragmentUnderstood)}
+                                onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateFragmentUnderstood', val: newKey === 'y'})}}
                               />
                             </div>
-                            {quizShouldAskAboutAddingOrQueueing(state) && (
-                              <div className="App-quiz-space-above">
+                          </div>
+                          {(state.mainUI.fragmentUnderstood !== null) && (<>
+                            <div className="App-quiz-space-above">
+                              <div className="App-quiz-section-label">{(() => {
+                                  switch (state.mainUI.quiz.kind) {
+                                    case QuizKind.SRS_REVIEW:
+                                      return 'Word Remembered?';
+
+                                    case QuizKind.SUGGEST_SRS:
+                                      return 'Word Known?';
+
+                                    case QuizKind.SUGGEST_QUEUE:
+                                      return 'Word Known?';
+
+                                    default:
+                                      throw new UnreachableCaseError(state.mainUI.quiz.kind);
+                                  }
+                              })()}</div>
+                              <div className="App-quiz-target-word">{state.mainUI.quiz.targetWord.spec}</div>
+                              <div>
+                                <button className="App-small-button" onClick={() => {dispatch({type: 'quizTargetWordHasProblem'})}}>Problem?</button>
+                              </div>
+                              {state.mainUI.targetWordProblemPanelShown && (
+                                <div style={{marginTop: '0.5em'}}>
+                                  <button
+                                    className="App-small-button"
+                                    onClick={() => {dispatch({type: 'quizTargetWordIgnore'})}}
+                                  >Ignore Word</button>{' '}
+                                  <button
+                                    className={'App-small-button' + (state.mainUI.targetWordNotInFragment ? ' App-button-selected' : '')}
+                                    onClick={() => {dispatch({type: 'quizTargetToggleWordNotInFragment'})}}
+                                  >Highlight Is Not This Word</button>
+                                </div>
+                              )}
+                              <div style={{marginTop: '1em'}}>
                                 <RadioButtons
-                                  label={(() => {
-                                    switch (state.mainUI.quiz.kind) {
-                                      case QuizKind.SUGGEST_SRS:
-                                        return 'Add to SRS?';
-
-                                      case QuizKind.SUGGEST_QUEUE:
-                                        return 'Queue for SRS?';
-
-                                      default:
-                                        invariant(false);
-                                    }
-                                  })()}
                                   options={[
                                     {val: 'y', name: 'Yes'},
                                     {val: 'n', name: 'No'},
                                   ]}
-                                  val={maybeBoolToYN(state.mainUI.addOrQueueTargetWordToSRS)}
-                                  onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateAddTargetWordToSRS', val: newKey === 'y'})}}
+                                  val={maybeBoolToYN(state.mainUI.targetWordKnown)}
+                                  onUpdate={(newKey: string) => {dispatch({type: 'quizUpdateTargetWordKnown', val: newKey === 'y'})}}
+                                />
+                              </div>
+                            </div>
+                            {quizShouldAskAgreeToSRS(state) && (
+                              <div className="App-quiz-space-above">
+                                <div className="App-quiz-section-label">Learn Word? (SRS)</div>
+                                {/* abusing radio buttons here, these submit immediately */}
+                                <RadioButtons
+                                  options={[
+                                    {val: 'agree', name: 'Yes'},
+                                    {val: 'ignore', name: 'No (Ignore)'},
+                                  ]}
+                                  val={null}
+                                  onUpdate={(newKey: string) => {
+                                    if (newKey === 'agree') {
+                                      dispatch({type: 'quizTargetWordAgreeToSRS'});
+                                    } else if (newKey === 'ignore') {
+                                      dispatch({type: 'quizTargetWordIgnore'});
+                                    } else {
+                                      invariant(false);
+                                    }
+                                  }}
                                 />
                               </div>
                             )}

@@ -113,6 +113,10 @@
   color: grey;
 }
 
-.RadioButtons-below-label {
-  font-size: 1.5em;
+.App-quiz-section-label {
+  font-weight: bold;
+}
+
+.App-quiz-target-word {
+  font-size: 2em;
 }

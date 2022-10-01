@@ -56,8 +56,8 @@ export enum WordStatus {
   // The word is queued to be added to SRS
   Queued = 'Q',
 
-  // The user declined to add the word to SRS when we suggested them to
-  Declined = 'D',
+  // The user has chosen to ignore this word (used to be Declined, hence D)
+  Ignored = 'D',
 
   // The word is in SRS, in the initial "learning" phase
   Learning = 'L',
@@ -67,8 +67,8 @@ export enum WordStatus {
 }
 
 export enum WordKnown {
-  // The word is in SRS, which supersedes any other estimate of known-ness
-  SRS = 'S',
+  // The word is in SRS or Ignored, which supersedes any other estimate of known-ness
+  NotApplicable = 'S',
 
   // We think the word is more likely to be known/not-known by the user
   Yes = 'Y',
@@ -517,7 +517,7 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
         }
       }
 
-      const wordInSRSOrExempt = (word.status === WordStatus.Learning) || (word.status === WordStatus.Reviewing) || (word.status === WordStatus.Declined) || (word.status === WordStatus.Queued);
+      const wordInSRSOrExempt = (word.status === WordStatus.Learning) || (word.status === WordStatus.Reviewing) || (word.status === WordStatus.Ignored) || (word.status === WordStatus.Queued);
       if (wordInSRSOrExempt || (known === true)) {
         orderingDontSuggestForSRSIdxs.add(orderingIdx);
       }
@@ -595,18 +595,13 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
   throw new Error('unimplemented: nothing left to do');
 }
 
-export type Feedback =
-  {
-    readonly kind: 'Fy'; // fragment fully understood
-  } | {
-    readonly kind: 'FnWy'; // fragment not fully understood, but target word known
-  } | {
-    readonly kind: 'FnWn'; // fragment not fully understood, and target word not known
-  } | {
-    readonly kind: 'FnWnAy'; // fragment not fully understood, target word not known, agreed to add/queue to SRS
-  } | {
-    readonly kind: 'FnWnAn'; // fragment not fully understood, target word not known, declined to add/queue to SRS
-  };
+export interface Feedback {
+  readonly fragmentUnderstood: boolean;
+  readonly targetWordKnown: boolean | undefined;
+  readonly targetWordIgnored: boolean; // user has chosen to ignore the target word
+  readonly targetWordNotInFragment: boolean;
+  readonly targetWordAgreedToSRS: boolean | undefined;
+}
 
 function getOrCreateWordTracking(state: QuizEngineState, time: Dayjs, tword: TokenizedWord): TrackedWord {
   const result = getWordFromWordIndex(state.wordIndex, tword);
@@ -645,7 +640,7 @@ function addWordToSRS(tw: TrackedWord, time: Dayjs): void {
   invariant((tw.status !== WordStatus.Learning) && (tw.status !== WordStatus.Reviewing));
 
   tw.status = WordStatus.Learning;
-  tw.known = WordKnown.SRS;
+  tw.known = WordKnown.NotApplicable;
   tw.timeKnownUpdated = time.unix();
   tw.interval = INITIAL_INTERVAL;
   tw.nextTime = time.unix() + INITIAL_INTERVAL;
@@ -706,7 +701,9 @@ function updateWordForSRSFailure(tw: TrackedWord, time: Dayjs): void {
 
 // mutates given state and has side effects
 export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Quiz, feedback: Feedback): Promise<void> {
-  logInfo(`took feedback of kind ${feedback.kind}`);
+  logInfo(`took feedback`, feedback);
+
+  invariant(!(feedback.targetWordIgnored && feedback.targetWordAgreedToSRS));
 
   const trie = buildWordTrie(state);
   const fwr = findWordsInFragment(quiz.fragmentText, quiz.fragmentTokenization, trie);
@@ -722,9 +719,9 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
 
     wt.timeLastShown = time.unix();
 
-    if (feedback.kind === 'Fy') {
+    if (feedback.fragmentUnderstood) {
       const wordInSRS = (wt.status === WordStatus.Learning) || (wt.status === WordStatus.Reviewing);
-      invariant((wordInSRS && (wt.known === WordKnown.SRS)) || (!wordInSRS && (wt.known !== WordKnown.SRS)));
+      invariant((wordInSRS && (wt.known === WordKnown.NotApplicable)) || (!wordInSRS && (wt.known !== WordKnown.NotApplicable)));
       // TODO: if word is queued, should we add to SRS as we do below if it's the target?
       if (wordInSRS) {
         updateWordForSRSSuccess(wt, time);
@@ -748,21 +745,15 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
 
   targetWordTracking.timeLastShown = time.unix();
 
-  if (feedback.kind === 'Fy') {
-    if (targetWordInSRS) {
-      updateWordForSRSSuccess(targetWordTracking, time);
-    } else if (targetWordTracking.status === WordStatus.Queued) {
-      // if word is queued, add it first and then do regular update
-      addWordToSRS(targetWordTracking, time);
-      state.todayStats.introCount++;
-      updateWordForSRSSuccess(targetWordTracking, time);
-    } else {
-      targetWordTracking.known = WordKnown.Yes;
-      targetWordTracking.timeKnownUpdated = time.unix();
-    }
+  // check if user decided to ignore the target word
+  if (feedback.targetWordIgnored) {
+    targetWordTracking.status = WordStatus.Ignored;
+    targetWordTracking.known = WordKnown.NotApplicable;
+    targetWordTracking.timeKnownUpdated = time.unix();
   } else {
-    // must be Fn*
-    if (feedback.kind === 'FnWy') {
+    invariant(feedback.targetWordKnown !== undefined);
+
+    if (feedback.targetWordKnown) {
       if (targetWordInSRS) {
         updateWordForSRSSuccess(targetWordTracking, time);
       } else if (targetWordTracking.status === WordStatus.Queued) {
@@ -775,7 +766,7 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
         targetWordTracking.timeKnownUpdated = time.unix();
       }
     } else {
-      // must be FnWn*
+      // target word not known
       if (targetWordInSRS) {
         updateWordForSRSFailure(targetWordTracking, time);
       } else if (targetWordTracking.status === WordStatus.Queued) {
@@ -787,23 +778,21 @@ export async function takeFeedback(state: QuizEngineState, time: Dayjs, quiz: Qu
         targetWordTracking.known = WordKnown.No;
         targetWordTracking.timeKnownUpdated = time.unix();
       }
+    }
 
-      // handle FnWnA*
-      if (feedback.kind === 'FnWnAy') {
-        if (state.todayStats.introCount < DAILY_INTRO_LIMIT) {
-          // Add word to SRS
-          addWordToSRS(targetWordTracking, time);
-          state.todayStats.introCount++;
-        } else {
-          targetWordTracking.status = WordStatus.Queued;
-          targetWordTracking.nextTime = time.unix();
-        }
-      } else if (feedback.kind === 'FnWnAn') {
-        // Mark word as declined so that we won't suggest it again
-        targetWordTracking.status = WordStatus.Declined;
+    // Did the user agreed to add the word to SRS?
+    if (feedback.targetWordAgreedToSRS) {
+      if (state.todayStats.introCount < DAILY_INTRO_LIMIT) {
+        // Add word to SRS
+        addWordToSRS(targetWordTracking, time);
+        state.todayStats.introCount++;
+      } else {
+        targetWordTracking.status = WordStatus.Queued;
+        targetWordTracking.nextTime = time.unix();
       }
     }
   }
+
   await storeWord(targetWordTracking);
 
   await storeDayStats(state.todayStats);

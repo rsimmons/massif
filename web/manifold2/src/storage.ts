@@ -49,6 +49,14 @@ class ManifoldProfileDB extends Dexie {
       dayStats: 'dayNumber',
       singleton: 'id',
     });
+
+    this.version(2).stores({}).upgrade(tx => {
+      tx.table('word').toCollection().modify(w => {
+        if (w.status === 'D') {
+          w.known = 'S';
+        }
+      });
+    });
   }
 }
 
