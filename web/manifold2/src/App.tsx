@@ -624,7 +624,7 @@ const App: React.FC = () => {
                   return (
                     <>
                       <div className="App-quiz-fragment-text">
-                        {(state.mainUI.gradingRevealed && (state.mainUI.fragmentUnderstood !== null)) ? (
+                        {(state.mainUI.gradingRevealed && (state.mainUI.fragmentUnderstood !== undefined)) ? (
                           <span dangerouslySetInnerHTML={{__html: state.mainUI.quiz.fragmentHighlightedHTML}}></span>
                         ) : (
                           <>{state.mainUI.quiz.fragmentText}</>
