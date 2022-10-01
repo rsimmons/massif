@@ -670,7 +670,7 @@ const App: React.FC = () => {
                               />
                             </div>
                           </div>
-                          {(state.mainUI.fragmentUnderstood !== null) && (<>
+                          {(state.mainUI.fragmentUnderstood !== undefined) && (<>
                             <div className="App-quiz-space-above">
                               <div className="App-quiz-section-label">{(() => {
                                   switch (state.mainUI.quiz.kind) {
