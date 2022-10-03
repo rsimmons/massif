@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useEffectReducer, EffectReducer, EffectsMap, InitialEffectStateGetter, EffectReducerExec } from "use-effect-reducer";
 import dayjs from 'dayjs';
 
-import { invariant, UnreachableCaseError } from './util';
+import { humanTime, invariant, UnreachableCaseError } from './util';
 import { getSRSAnalysis, Feedback, getNextQuiz, getPlacementTest, initState, needPlacementTest, PlacementTest, Quiz, QuizEngineState, QuizKind, setOrderingIntroIdx, takeFeedback, SRSAnalysis, getSRSIntroStats } from './quizEngine';
 import './App.css';
 import { translateText } from './massifAPI';
@@ -515,7 +515,7 @@ const StatusPanel: React.FC<{state: ManifoldState, dispatch: ManifoldDispatch}> 
               return <>{state.stats.srsDueCount} due now{(state.stats.srsDueSoonCount > 0) && <>, {state.stats.srsDueSoonCount} due soon</> }</>
             } else if (state.stats.srsDueSoonCount > 0) {
               invariant(state.stats.srsTimeUntilNextLearningDue !== undefined);
-              return <>{state.stats.srsDueSoonCount} due soon, {state.stats.srsTimeUntilNextLearningDue}s until next</>
+              return <>{state.stats.srsDueSoonCount} due soon, {humanTime(state.stats.srsTimeUntilNextLearningDue)} until next</>
             } else {
               return <>nothing for review today</>
             }
