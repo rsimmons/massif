@@ -6,6 +6,7 @@ import { humanTime, invariant, UnreachableCaseError } from './util';
 import { getSRSAnalysis, Feedback, getNextQuiz, getPlacementTest, initState, needPlacementTest, PlacementTest, Quiz, QuizEngineState, QuizKind, setOrderingIntroIdx, takeFeedback, SRSAnalysis, getSRSIntroStats } from './quizEngine';
 import './App.css';
 import { translateText } from './massifAPI';
+import { exportBackup } from './storage';
 
 type FragmentTranslation =
   {
@@ -489,6 +490,7 @@ const createInitialState: InitialEffectStateGetter<ManifoldState, ManifoldEvent,
   };
 }
 
+/*
 // this may render to the opened panel or just the button
 const AddWordPanel: React.FC<{localState: AddWordPanelState, dispatch: ManifoldDispatch}> = ({localState, dispatch}) => {
   const handleChangeWord = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -502,6 +504,7 @@ const AddWordPanel: React.FC<{localState: AddWordPanelState, dispatch: ManifoldD
     </div>
   );
 }
+*/
 
 const StatusPanel: React.FC<{state: ManifoldState, dispatch: ManifoldDispatch}> = ({state, dispatch}) => {
   invariant(state.stats);
@@ -528,9 +531,21 @@ const StatusPanel: React.FC<{state: ManifoldState, dispatch: ManifoldDispatch}> 
           {state.stats.queuedCount} in queue
         </div>
       </div>
-      {/* <div className="App-StatusPanel-add-word">
-        <AddWordPanel localState={state.addWordPanel} dispatch={dispatch} />
-      </div> */}
+      <div className="App-StatusPanel-right">
+        <div>
+          <button onClick={() => {
+            (async () => {
+              const blobURL = URL.createObjectURL(await exportBackup());
+              const anchor = document.createElement('a');
+              anchor.href = blobURL;
+              anchor.download = 'manifold-backup.json';
+              document.body.appendChild(anchor);
+              anchor.click();
+              document.body.removeChild(anchor);
+            })();
+          }}>Download Backup</button>
+        </div>
+      </div>
     </div>
   );
 }

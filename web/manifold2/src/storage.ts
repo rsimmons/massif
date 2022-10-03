@@ -1,4 +1,5 @@
 import Dexie from 'dexie';
+import 'dexie-export-import';
 import { TrackedWord, WordStatus, DayStats, WordKnown, Singleton } from './quizEngine';
 import { invariant } from './util';
 
@@ -71,6 +72,20 @@ declare global {
   var currentProfileDB: ManifoldProfileDB;
 }
 globalThis.currentProfileDB = profileDB;
+
+export async function exportBackup(): Promise<Blob> {
+  const dbBlob = await profileDB.export();
+
+  const wrappedBlob = new Blob([
+    '{"manifoldBackupVersion":1,"profileDB":',
+    dbBlob,
+    '}',
+  ], {
+    type: 'text/json',
+  });
+
+  return wrappedBlob;
+}
 
 export async function loadAllWords(): Promise<Map<number, TrackedWord>> {
   return new Map((await profileDB.word.toArray()).map(a => [a.id, a]));

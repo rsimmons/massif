@@ -13,6 +13,7 @@
     "@types/react-dom": "^18.0.0",
     "dayjs": "^1.11.5",
     "dexie": "^3.2.2",
+    "dexie-export-import": "^1.0.3",
     "fake-indexeddb": "^4.0.0",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",

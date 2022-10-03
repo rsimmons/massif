@@ -52,16 +52,9 @@
   box-shadow: none;
 }
 
-.App-StatusPanel-add-word {
-  margin-left: auto;
-}
-
-.App-AddWordPanel {
+.App-StatusPanel-right {
   display: inline-block;
-}
-
-.App-AddWordPanel-word {
-  width: 10em;
+  margin-left: auto;
 }
 
 .App-main-area {
