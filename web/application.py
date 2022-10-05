@@ -298,6 +298,9 @@ def ja_manifold_sub(name):
 MANIFOLD2_BUILD_DIR = 'manifold2/build'
 
 @app.route('/ja/manifold2')
+@app.route('/ja/manifold2/placement')
+@app.route('/ja/manifold2/quiz')
+@app.route('/ja/manifold2/settings')
 def ja_manifold2_root():
     # NOTE: Instead of doing this:
     # send_from_directory(MANIFOLD2_BUILD_DIR, 'index.html')
@@ -310,6 +313,11 @@ def ja_manifold2_root():
 @app.route("/ja/manifold2/<path:name>")
 def ja_manifold2_sub(name):
     return send_from_directory(MANIFOLD2_BUILD_DIR, name)
+
+# remove trailing slash
+@app.route('/ja/manifold2/')
+def ja_manifold2_slash():
+    return redirect('/ja/manifold2')
 
 #
 # API

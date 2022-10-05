@@ -1,0 +1,40 @@
+.QuizPage-main {
+  text-align: center;
+  margin-top: 1em;
+}
+
+.QuizPage-fragment-text {
+  font-size: 2em;
+  padding: 2px 0; /* trying to address iOS bug with box-shadow on em getting clipped */
+}
+
+.QuizPage-fragment-text em {
+  font-style: normal;
+  box-shadow: 0 0 0px 2px red;
+  font-style: normal;
+  border-radius: 5px;
+}
+
+.QuizPage-target-text {
+  font-size: 1.5em;
+}
+
+.QuizPage-space-above {
+  margin-top: 1.5em;
+}
+
+.QuizPage-big-space-above {
+  margin-top: 2em;
+}
+
+.QuizPage-other-buttons {
+  font-size: 0.75em;
+}
+
+.QuizPage-section-label {
+  font-weight: bold;
+}
+
+.QuizPage-target-word {
+  font-size: 2em;
+}

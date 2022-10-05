@@ -1,0 +1,15 @@
+.PlacementTestPage {
+  padding-top: 1em;
+}
+
+.PlacementTestPage-words {
+  margin-right: 1em;
+}
+
+.PlacementTestPage-group {
+  margin-bottom: 0.5em;
+}
+
+.PlacementTestPage-group-level {
+  color: grey;
+}

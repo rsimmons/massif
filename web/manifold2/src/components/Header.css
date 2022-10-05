@@ -1,0 +1,11 @@
+.Header {
+  display: flex;
+  padding: 0.5em;
+  background-color: #f4e1e1;
+}
+
+.Header-right {
+  display: inline-block;
+  margin-left: auto;
+}
+

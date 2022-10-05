@@ -266,6 +266,10 @@ export function getPlacementTest(): PlacementTest {
   return groups;
 }
 
+export function getOrderingIntroIdx(state: QuizEngineState): number | null {
+  return state.singleton.orderingIntroIdx;
+}
+
 // idempotent
 export function setOrderingIntroIdx(state: QuizEngineState, index: number): void {
   logInfo(`ordering intro index set to ${index}`);

@@ -1,0 +1,7 @@
+.SettingsPage {
+  text-align: center;
+}
+
+.SettingsPage > * {
+  margin-top: 2em;
+}
