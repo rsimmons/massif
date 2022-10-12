@@ -279,6 +279,9 @@ def ja_tanken_sub(name):
 MANIFOLD_BUILD_DIR = 'manifold/build'
 
 @app.route('/ja/manifold')
+@app.route('/ja/manifold/placement')
+@app.route('/ja/manifold/quiz')
+@app.route('/ja/manifold/settings')
 def ja_manifold_root():
     # NOTE: Instead of doing this:
     # send_from_directory(MANIFOLD_BUILD_DIR, 'index.html')
@@ -292,32 +295,10 @@ def ja_manifold_root():
 def ja_manifold_sub(name):
     return send_from_directory(MANIFOLD_BUILD_DIR, name)
 
-#
-# MANIFOLD2
-#
-MANIFOLD2_BUILD_DIR = 'manifold2/build'
-
-@app.route('/ja/manifold2')
-@app.route('/ja/manifold2/placement')
-@app.route('/ja/manifold2/quiz')
-@app.route('/ja/manifold2/settings')
-def ja_manifold2_root():
-    # NOTE: Instead of doing this:
-    # send_from_directory(MANIFOLD2_BUILD_DIR, 'index.html')
-    # we render this template, which is actually a symlink to manifold2/build/index.html,
-    # so that we don't have to deal with having two template directories.
-    # This could be an issue if there was accidentally anything that looked like a template
-    # substitution in the frontend code, but it works for now.
-    return render_template('manifold2_index.html')
-
-@app.route("/ja/manifold2/<path:name>")
-def ja_manifold2_sub(name):
-    return send_from_directory(MANIFOLD2_BUILD_DIR, name)
-
 # remove trailing slash
-@app.route('/ja/manifold2/')
-def ja_manifold2_slash():
-    return redirect('/ja/manifold2')
+@app.route('/ja/manifold/')
+def ja_manifold_slash():
+    return redirect('/ja/manifold')
 
 #
 # API
