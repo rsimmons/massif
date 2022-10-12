@@ -300,6 +300,19 @@ def ja_manifold_sub(name):
 def ja_manifold_slash():
     return redirect('/ja/manifold')
 
+# redirect old manifold2 thing to manifold
+@app.route('/ja/manifold2')
+def ja_manifold2_redir():
+    return redirect('/ja/manifold')
+
+@app.route('/ja/manifold2/')
+def ja_manifold2_slash_redir():
+    return redirect('/ja/manifold')
+
+@app.route('/ja/manifold2/<path:p>')
+def ja_manifold2_path_redir(p):
+    return redirect('/ja/manifold/' + p)
+
 #
 # API
 #
