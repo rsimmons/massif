@@ -286,6 +286,10 @@ export interface SRSAnalysis {
   readonly dueSoonWords: ReadonlyArray<TrackedWord>;
 
   readonly queuedWords: ReadonlyArray<TrackedWord>;
+
+  readonly todayIntroCount: number;
+  readonly todayIntroLimit: number;
+  readonly timeUntilNextLearningDue: number | undefined;
 }
 
 export function getSRSAnalysis(state: QuizEngineState, time: Dayjs): SRSAnalysis {
@@ -339,13 +343,9 @@ export function getSRSAnalysis(state: QuizEngineState, time: Dayjs): SRSAnalysis
     dueWords,
     dueSoonWords,
     queuedWords,
-  };
-}
-
-export function getSRSIntroStats(state: QuizEngineState): {todayIntroCount: number, todayIntroLimit: number} {
-  return {
     todayIntroCount: state.todayStats.introCount,
     todayIntroLimit: DAILY_INTRO_LIMIT,
+    timeUntilNextLearningDue: (dueSoonWords.length > 0) ? (dueSoonWords[0].nextTime - time.unix()) : undefined
   };
 }
 
@@ -463,7 +463,7 @@ async function getQuizForOrderingIdx(state: QuizEngineState, quizKind: QuizKind,
 }
 
 // mutates given state and has side effects
-export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<Quiz> {
+export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<[Quiz, SRSAnalysis]> {
   invariant(state.singleton.orderingIntroIdx !== null);
 
   const dayNumber = timeToLogicalDayNum(time);
@@ -544,7 +544,7 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
     const targetWord = srsAn.dueWords[0];
 
     logInfo(`doing SRS quiz for due word spec: ${targetWord.spec}`, targetWord);
-    return getQuizForTargetWord(state, QuizKind.SRS_REVIEW, targetWord, trie);
+    return [await getQuizForTargetWord(state, QuizKind.SRS_REVIEW, targetWord, trie), srsAn];
   }
 
   // Are we still OK to suggest more words to add to SRS?
@@ -561,7 +561,7 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
       // clearly expressing their intention to SRS it. I don't think we want to ask them again.
       // So instead we just review it (even though it's still in Queued state), and the feedback
       // code will add it.
-      return getQuizForTargetWord(state, QuizKind.SRS_REVIEW, firstQueuedWord, trie);
+      return [await getQuizForTargetWord(state, QuizKind.SRS_REVIEW, firstQueuedWord, trie), srsAn];
     }
 
     // Pick a word from ordering to suggest adding to SRS if not known
@@ -570,13 +570,13 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
       // NOTE: This is the index of the lowest word explicitly marked not-known, not just the lowest
       // word that we are unsure about
       logInfo(`found tracked-as-not-known word below the probably-known index (${state.singleton.orderingIntroIdx}) at index ${lowestUnknownWordIdx} to suggest`);
-      return getQuizForOrderingIdx(state, QuizKind.SUGGEST_SRS, lowestUnknownWordIdx, trie);
+      return [await getQuizForOrderingIdx(state, QuizKind.SUGGEST_SRS, lowestUnknownWordIdx, trie), srsAn];
     } else {
       // work upward from orderingIntroIdx until we find an acceptable word to suggest
       for (let idx = state.singleton.orderingIntroIdx; idx < WORD_ORDERING.length; idx++) {
         if (!orderingDontSuggestForSRSIdxs.has(idx)) {
           logInfo(`worked up from probably-known index and found acceptable word at index ${idx} to suggest`);
-          return getQuizForOrderingIdx(state, QuizKind.SUGGEST_SRS, idx, trie);
+          return [await getQuizForOrderingIdx(state, QuizKind.SUGGEST_SRS, idx, trie), srsAn];
         }
       }
       throw new Error('could not find any word in ordering to suggest');
@@ -592,7 +592,7 @@ export async function getNextQuiz(state: QuizEngineState, time: Dayjs): Promise<
   for (let idx = state.singleton.orderingIntroIdx; idx >= 0; idx--) {
     if (!orderingDontProbeIdxs.has(idx)) {
       logInfo(`probing at index ${idx}`);
-      return getQuizForOrderingIdx(state, QuizKind.SUGGEST_QUEUE, idx, trie);
+      return [await getQuizForOrderingIdx(state, QuizKind.SUGGEST_QUEUE, idx, trie), srsAn];
     }
   }
 

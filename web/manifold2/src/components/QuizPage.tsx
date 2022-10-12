@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs, { Dayjs } from 'dayjs';
 
 import { invariant, UnreachableCaseError } from '../util';
-import { Feedback, getNextQuiz, needPlacementTest, Quiz, QuizEngineState, QuizKind, takeFeedback } from '../quizEngine';
+import { Feedback, getNextQuiz, getSRSAnalysis, needPlacementTest, Quiz, QuizEngineState, QuizKind, SRSAnalysis, takeFeedback } from '../quizEngine';
 import { translateText } from '../massifAPI';
 import Header from './Header';
 import './QuizPage.css';
@@ -22,9 +22,11 @@ type QuizPageState =
   {
     type: 'loading';
     readonly qeState: QuizEngineState;
+    readonly srsAn: SRSAnalysis;
   } | {
     type: 'quiz';
     readonly qeState: QuizEngineState;
+    readonly srsAn: SRSAnalysis;
     readonly quiz: Quiz;
     readonly gradingRevealed: boolean;
     readonly fragmentTranslation: FragmentTranslation;
@@ -38,6 +40,7 @@ type QuizPageEvent =
   {
     readonly type: 'quizLoaded';
     readonly quiz: Quiz;
+    readonly srsAn: SRSAnalysis;
   } | {
     readonly type: 'revealGrading';
   } | {
@@ -114,6 +117,7 @@ function submitGrading(state: QuizPageState, extra: {targetWordIgnored: boolean,
   return {
     type: 'loading',
     qeState: state.qeState,
+    srsAn: state.srsAn,
   };
 }
 
@@ -123,6 +127,7 @@ const reducer: EffectReducer<QuizPageState, QuizPageEvent, QuizPageEffect> = (st
       return {
         type: 'quiz',
         qeState: state.qeState,
+        srsAn: event.srsAn,
         quiz: event.quiz,
         gradingRevealed: false,
         fragmentTranslation: {type: 'none'},
@@ -226,11 +231,13 @@ const effectsMap: EffectsMap<QuizPageState, QuizPageEvent, QuizPageEffect> = {
     (async () => {
       invariant(state.qeState);
 
-      const quiz = await getNextQuiz(state.qeState, dayjs());
+      const t = dayjs();
+      const [quiz, srsAn] = await getNextQuiz(state.qeState, t);
 
       dispatch({
         type: 'quizLoaded',
         quiz,
+        srsAn,
       });
     })();
   },
@@ -241,11 +248,12 @@ const effectsMap: EffectsMap<QuizPageState, QuizPageEvent, QuizPageEffect> = {
 
       const t = dayjs();
       await takeFeedback(state.qeState, t, effect.prevQuiz, effect.feedback);
-      const quiz = await getNextQuiz(state.qeState, t);
+      const [quiz, srsAn] = await getNextQuiz(state.qeState, t);
 
       dispatch({
         type: 'quizLoaded',
         quiz,
+        srsAn,
       });
     })();
   },
@@ -288,7 +296,7 @@ function maybeBoolToYN(v: boolean | undefined): 'y' | 'n' | null {
   }
 }
 
-const QuizPage: React.FC<{quizEngineState: QuizEngineState, time: Dayjs}> = ({quizEngineState, time}) => {
+const QuizPage: React.FC<{quizEngineState: QuizEngineState}> = ({quizEngineState}) => {
   const navigate = useNavigate();
 
   const getInitialState: InitialEffectStateGetter<QuizPageState, QuizPageEvent, QuizPageEffect> = exec => {
@@ -300,6 +308,7 @@ const QuizPage: React.FC<{quizEngineState: QuizEngineState, time: Dayjs}> = ({qu
     return {
       type: 'loading',
       qeState: quizEngineState,
+      srsAn: getSRSAnalysis(quizEngineState, dayjs()),
     };
   };
 
@@ -313,7 +322,7 @@ const QuizPage: React.FC<{quizEngineState: QuizEngineState, time: Dayjs}> = ({qu
 
   return (
     <>
-      <Header quizEngineState={quizEngineState} time={time} />
+      <Header srsAn={state.srsAn} />
       <div className="QuizPage-main">
         {(() => {
           switch (state.type) {

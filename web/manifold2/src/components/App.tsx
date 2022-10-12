@@ -2,19 +2,20 @@ import React, { useEffect, useState } from 'react';
 import dayjs, { Dayjs } from 'dayjs';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 
-import { initState, needPlacementTest, QuizEngineState } from '../quizEngine';
+import { getSRSAnalysis, initState, needPlacementTest, QuizEngineState } from '../quizEngine';
 import Header from './Header';
 import PlacementTestPage from './PlacementTestPage';
 import QuizPage from './QuizPage';
 import SettingsPage from './SettingsPage';
 import './App.css';
 
-const HomePage: React.FC<{quizEngineState: QuizEngineState, time: Dayjs}> = ({quizEngineState, time}) => {
+const HomePage: React.FC<{quizEngineState: QuizEngineState}> = ({quizEngineState}) => {
+  const srsAn = getSRSAnalysis(quizEngineState, dayjs());
   const navigate = useNavigate();
 
   return (
     <>
-      <Header quizEngineState={quizEngineState} time={time}/>
+      <Header srsAn={srsAn} />
       <div className="HomePage-main">
         <button className="App-chonky-button" onClick={() => {
           if (needPlacementTest(quizEngineState)) {
@@ -53,9 +54,9 @@ const App: React.FC = () => {
   return (
     <div className="App">
       <Routes>
-        <Route path="/" element={<HomePage quizEngineState={quizEngineState} time={time} />} />
+        <Route path="/" element={<HomePage quizEngineState={quizEngineState} />} />
         <Route path="/placement" element={<PlacementTestPage quizEngineState={quizEngineState} />} />
-        <Route path="/quiz" element={<QuizPage quizEngineState={quizEngineState} time={time} />} />
+        <Route path="/quiz" element={<QuizPage quizEngineState={quizEngineState} />} />
         <Route path="/settings" element={<SettingsPage quizEngineState={quizEngineState} />} />
       </Routes>
     </div>
