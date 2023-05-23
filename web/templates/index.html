@@ -198,6 +198,12 @@ em {
     <div class="wrapper">
         <form id="search-form" action="/ja/search" method="get">
             <input id="search-query-input" class="text-japanese" type="text" name="q" autofocus autocomplete="off" autocomplete="off" autocorrect="off" tabindex="1" value="{{ query }}" onfocus="this.select()"/>
+            {% if max_results %}
+                <input type="hidden" name="maxres" value="{{ max_results }}" />
+            {% endif %}
+            {% if index_suffix %}
+                <input type="hidden" name="idxsuf" value="{{ index_suffix }}" />
+            {% endif %}
             <button id="search-submit-button" type="submit">
                 <svg height="24px" width="24px" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 15.69 15.48" x="0px" y="0px"><path d="M15.28,12.71,11.85,9.27a6.21,6.21,0,0,0,.75-3,6.3,6.3,0,1,0-6.3,6.3,6.23,6.23,0,0,0,3.23-.9l3.39,3.39a1.39,1.39,0,0,0,2,0l.4-.4A1.4,1.4,0,0,0,15.28,12.71Zm-9-2.25a4.16,4.16,0,1,1,4.16-4.17A4.16,4.16,0,0,1,6.3,10.46Z"></path></svg>
             </button>

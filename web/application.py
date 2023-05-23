@@ -75,14 +75,14 @@ def ja_fsearch():
     response_format = request.args.get('fmt', 'html')
     include_tokens = request.args.get('toks') is not None
     max_results = min(int(request.args.get('maxres', DEFAULT_FRAGMENT_RESULTS_PER_PAGE)), MAX_FRAGMENT_RESULTS_PER_PAGE)
+    index_suffix = request.args.get('idxsuf', '')
 
-    print('query', json.dumps({'query': query, 'format': response_format, 'tokens': include_tokens, 'max_results': max_results}, sort_keys=True, ensure_ascii=True), flush=True)
+    print('query', json.dumps({'query': query, 'format': response_format, 'tokens': include_tokens, 'max_results': max_results, 'index_suffix': index_suffix}, sort_keys=True, ensure_ascii=True), flush=True)
 
     # PARSE QUERY
     phrases = query.split()
     if not phrases:
         return redirect(url_for('ja'))
-
 
     # SEARCH FRAGMENTS
     results = {}
@@ -102,7 +102,7 @@ def ja_fsearch():
             subqueries.append({'match_phrase': {'text': phrase}})
 
     t0 = time.time()
-    main_resp = requests.get(f'{ES_BASE_URL}/{FRAGMENT_INDEX}/_search', json={
+    main_resp = requests.get(f'{ES_BASE_URL}/{FRAGMENT_INDEX + index_suffix}/_search', json={
         'query': {
             'bool': {
                 'must': subqueries,
@@ -167,7 +167,7 @@ def ja_fsearch():
     # FETCH SOURCE RECORDS
     if source_infos:
         unique_source_ids = set(s['source_id'] for s in source_infos)
-        source_resp = requests.get(f'{ES_BASE_URL}/_mget', json={'docs': [{'_index': SOURCE_INDEX, '_id': sid} for sid in unique_source_ids]})
+        source_resp = requests.get(f'{ES_BASE_URL}/_mget', json={'docs': [{'_index': SOURCE_INDEX + index_suffix, '_id': sid} for sid in unique_source_ids]})
         source_resp.raise_for_status()
         source_resp_body = source_resp.json()
         source_map = {doc['_id']: doc['_source'] for doc in source_resp_body['docs']}
@@ -227,7 +227,7 @@ def ja_fsearch():
     json_response['results'] = json_results_list
 
     if response_format == 'html':
-        return render_template('index.html', query=query, results=results)
+        return render_template('index.html', query=query, results=results, max_results=max_results if max_results != DEFAULT_FRAGMENT_RESULTS_PER_PAGE else None, index_suffix=index_suffix)
     elif response_format == 'json':
         response = jsonify(json_response)
         response.headers.add('Access-Control-Allow-Origin', '*')
