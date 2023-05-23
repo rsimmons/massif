@@ -9,7 +9,8 @@ CREATE TABLE fragment (
   count_chars INTEGER NOT NULL,
   count_mchars INTEGER NOT NULL,
   logprob REAL,
-  count_toks INTEGER
+  count_toks INTEGER,
+  score_ev_20230516 REAL
 );
 
 CREATE TABLE source (
@@ -43,13 +44,14 @@ def close():
 
 def iter_fragments_plus():
     cur = cxn.cursor()
-    for row in cur.execute('''SELECT f.text, f.logprob, f.count_chars, f.count_mchars, json_group_array(json_object('source_id', h.source_id, 'loc', h.loc, 'tags', s.tags)) FROM fragment f INNER JOIN hit h ON f.id = h.fragment_id, source s ON s.id = h.source_id WHERE f.logprob IS NOT NULL GROUP BY f.text'''):
+    for row in cur.execute('''SELECT f.text, f.logprob, f.count_chars, f.count_mchars, json_group_array(json_object('source_id', h.source_id, 'loc', h.loc, 'tags', s.tags)), f.score_ev_20230516 FROM fragment f INNER JOIN hit h ON f.id = h.fragment_id, source s ON s.id = h.source_id GROUP BY f.text'''):
         yield {
             'text': row[0],
             'logprob': row[1],
             'count_chars': row[2],
             'count_mchars': row[3],
             'hits': json.loads(row[4]), # has fields source_id, loc, tags
+            'score_ev_20230516': row[5],
         }
 
 def iter_sources():

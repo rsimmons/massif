@@ -112,7 +112,13 @@ if __name__ == '__main__':
     count = 0
     combined_normal_stats = {}
     for row in fragdb.iter_fragments_plus():
-        score = row['logprob']/math.pow(row['count_chars'], 0.5)
+        # if row['logprob'] is None:
+        #     continue
+        # score = row['logprob']/math.pow(row['count_chars'], 0.5)
+
+        if row['score_ev_20230516'] is None:
+            continue
+        score = row['score_ev_20230516'] # adjust for length?
 
         # Map from unique tag-set (sorted, comma-joined into string) to a list of hits with that tag-set.
         # The tag-set string may be the empty string if there are no tags for that hit.
