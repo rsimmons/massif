@@ -91,15 +91,29 @@ def ja_fsearch():
     subqueries = []
     exact_phrases = []
     for phrase in phrases:
+        negative = False
+        if phrase.startswith('-'):
+            negative = True
+            phrase = phrase[1:]
+        if not phrase:
+            continue
+
         if phrase.startswith('"') and phrase.endswith('"') and (len(phrase) >= 3):
             exact_phrase = phrase[1:-1]
             if ('*' in exact_phrase) or ('?' in exact_phrase):
                 # if someone uses these, just skip it, because they have special meaning
                 continue
-            subqueries.append({'wildcard': {'text.wc': {'value': '*' + exact_phrase + '*'}}})
-            exact_phrases.append(exact_phrase)
+            q = {'wildcard': {'text.wc': {'value': '*' + exact_phrase + '*'}}}
+            if negative:
+                q = {'bool': {'must_not': q}}
+            subqueries.append(q)
+            if not negative:
+                exact_phrases.append(exact_phrase)
         else:
-            subqueries.append({'match_phrase': {'text': phrase}})
+            q = {'match_phrase': {'text': phrase}}
+            if negative:
+                q = {'bool': {'must_not': q}}
+            subqueries.append(q)
 
     t0 = time.time()
     main_resp = requests.get(f'{ES_BASE_URL}/{FRAGMENT_INDEX + index_suffix}/_search', json={
