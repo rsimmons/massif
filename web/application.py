@@ -12,7 +12,7 @@ from common.ja import ja_get_text_morphemes, ja_get_morphemes_normal_stats, ja_g
 app = Flask(__name__)
 
 # This avoids errors in dev
-if app.env == 'development':
+if app.debug:
     CORS(app)
 
 # Elastic Beanstalk requires "application" to be set
@@ -38,7 +38,7 @@ SOURCE_INDEX = 'source_ja'
 
 @app.before_request
 def before_request():
-    if not request.is_secure and app.env == 'production':
+    if request.headers.get('X-Forwarded-Proto') == 'http' and not app.debug:
         url = request.url.replace('http://', 'https://', 1)
         return redirect(url, code=301)
 
