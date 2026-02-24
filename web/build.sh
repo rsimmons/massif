@@ -2,15 +2,15 @@
 set -e
 
 # build React SPAs
-(cd pathfinder && yarn build)
-(cd tanken && yarn build)
-(cd manifold && yarn build)
+#(cd pathfinder && yarn build)
+#(cd tanken && yarn build)
+#(cd manifold && yarn build)
 
 #### build deployment artifact for Elastic Beanstalk
 # remove old build
 rm build.zip
 # start zip with local stuff
-zip build.zip *.py requirements.txt
+zip build.zip *.py requirements.txt blocked_ips.txt
 # add several dirs to zip, using find to get recursion
 find .ebextensions static templates | zip build.zip -@
 find pathfinder/build | zip build.zip -@

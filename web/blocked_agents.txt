@@ -1,0 +1,1 @@
+# Blocked user-agent substrings (case-insensitive), one per line

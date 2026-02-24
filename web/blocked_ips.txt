@@ -1,0 +1,2 @@
+# Blocked IPs, one per line
+# Example: 203.0.113.42

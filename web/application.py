@@ -2,8 +2,9 @@ import os
 import time
 import random
 import json
+from collections import deque
 
-from flask import Flask, request, render_template, redirect, url_for, escape, send_from_directory, abort, jsonify
+from flask import Flask, request, render_template, redirect, url_for, escape, send_from_directory, abort, jsonify, Response, g
 from flask_cors import CORS
 import requests
 
@@ -24,6 +25,46 @@ app.config['JSON_AS_ASCII'] = False
 # It's nice to have this pretty printed even if it takes a few more bytes to transfer
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = True
 
+def load_blocked_file(filepath):
+    entries = set()
+    try:
+        with open(filepath) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    entries.add(line)
+    except FileNotFoundError:
+        pass
+    return entries
+
+BLOCKED_IPS = load_blocked_file(os.path.join(os.path.dirname(__file__), 'blocked_ips.txt'))
+BLOCKED_AGENTS = load_blocked_file(os.path.join(os.path.dirname(__file__), 'blocked_agents.txt'))
+
+# Rate limiting: per-IP sliding window
+RATE_LIMIT_SHORT_WINDOW = 10    # seconds
+RATE_LIMIT_SHORT_MAX = 10       # max requests in short window
+RATE_LIMIT_LONG_WINDOW = 300    # seconds (5 min)
+RATE_LIMIT_LONG_MAX = 30        # max requests in long window
+rate_limit_log = {}             # ip -> deque of timestamps
+_request_count = 0              # for periodic cleanup
+
+# ES cost-based rate limiting: per-IP cumulative query time
+ES_COST_WINDOW = 600            # seconds (10 min)
+ES_COST_MAX = 15.0              # max cumulative ES seconds in window
+es_cost_log = {}                # ip -> deque of (timestamp, duration) tuples
+
+RATE_LIMIT_MSG = 'Too Many Requests. If you need bulk access to the dataset, please contact contact@massif.la and we can work something out.'
+
+def record_es_cost(duration):
+    ip = g.get('client_ip')
+    if ip is None:
+        return
+    entries = es_cost_log.get(ip)
+    if entries is None:
+        entries = deque()
+        es_cost_log[ip] = entries
+    entries.append((time.time(), duration))
+
 ES_HOST = os.getenv('ES_HOST', 'localhost')
 ES_BASE_URL = f'http://{ES_HOST}:9200'
 
@@ -38,6 +79,76 @@ SOURCE_INDEX = 'source_ja'
 
 @app.before_request
 def before_request():
+    global _request_count
+
+    # Extract client IP once, stash on g for use in route handlers
+    forwarded_for = request.headers.get('X-Forwarded-For', '')
+    client_ip = forwarded_for.split(',')[0].strip() if forwarded_for else request.remote_addr
+    g.client_ip = client_ip
+
+    # IP block check
+    if client_ip in BLOCKED_IPS:
+        print(f'blocked ip {client_ip} {request.path}', flush=True)
+        return Response('Forbidden', status=403)
+
+    # User-agent block check
+    if BLOCKED_AGENTS:
+        ua = (request.headers.get('User-Agent') or '').lower()
+        for agent in BLOCKED_AGENTS:
+            if agent.lower() in ua:
+                print(f'blocked agent {agent!r} ip={client_ip} {request.path}', flush=True)
+                return Response('Forbidden', status=403)
+
+    # Rate limiting (only for search/API paths, skip in debug mode)
+    if not app.debug and request.path.startswith(('/ja/search', '/api/')):
+        now = time.time()
+        timestamps = rate_limit_log.get(client_ip)
+        if timestamps is None:
+            timestamps = deque()
+            rate_limit_log[client_ip] = timestamps
+
+        # Trim entries older than long window
+        cutoff = now - RATE_LIMIT_LONG_WINDOW
+        while timestamps and timestamps[0] < cutoff:
+            timestamps.popleft()
+
+        timestamps.append(now)
+
+        # Check short window: count entries in last N seconds
+        short_cutoff = now - RATE_LIMIT_SHORT_WINDOW
+        short_count = sum(1 for t in timestamps if t >= short_cutoff)
+        if short_count > RATE_LIMIT_SHORT_MAX:
+            print(f'rate limited (short) ip={client_ip} {short_count}/{RATE_LIMIT_SHORT_MAX} {request.path}', flush=True)
+            return Response(RATE_LIMIT_MSG, status=429)
+
+        # Check long window: total deque length (already trimmed to long window)
+        if len(timestamps) > RATE_LIMIT_LONG_MAX:
+            print(f'rate limited (long) ip={client_ip} {len(timestamps)}/{RATE_LIMIT_LONG_MAX} {request.path}', flush=True)
+            return Response(RATE_LIMIT_MSG, status=429)
+
+        # ES cost check: cumulative query time over window
+        cost_entries = es_cost_log.get(client_ip)
+        if cost_entries is not None:
+            cost_cutoff = now - ES_COST_WINDOW
+            while cost_entries and cost_entries[0][0] < cost_cutoff:
+                cost_entries.popleft()
+            total_cost = sum(d for _, d in cost_entries)
+            if total_cost > ES_COST_MAX:
+                print(f'rate limited (es cost) ip={client_ip} {total_cost:.1f}s/{ES_COST_MAX}s {request.path}', flush=True)
+                return Response(RATE_LIMIT_MSG, status=429)
+
+        # Periodic cleanup: prune stale IPs every 100 requests
+        _request_count += 1
+        if _request_count % 100 == 0:
+            stale = [ip for ip, ts in rate_limit_log.items() if ts and ts[-1] < cutoff]
+            for ip in stale:
+                del rate_limit_log[ip]
+            cost_cutoff = now - ES_COST_WINDOW
+            stale = [ip for ip, entries in es_cost_log.items() if entries and entries[-1][0] < cost_cutoff]
+            for ip in stale:
+                del es_cost_log[ip]
+
+    # HTTP -> HTTPS redirect
     if request.headers.get('X-Forwarded-Proto') == 'http' and not app.debug:
         url = request.url.replace('http://', 'https://', 1)
         return redirect(url, code=301)
@@ -140,7 +251,8 @@ def ja_fsearch():
     })
     dt = time.time() - t0
     main_resp.raise_for_status()
-    print('es_request_time', f'{dt}', flush=True)
+    print('es_request_time', f'{dt}', f'ip={g.client_ip}', flush=True)
+    record_es_cost(dt)
 
     # FORMAT RESULT COUNT
     main_resp_body = main_resp.json()
@@ -362,7 +474,8 @@ def api_get_normal_fragments():
     })
     dt = time.time() - t0
     main_resp.raise_for_status()
-    print('es_request_time', f'{dt}', flush=True)
+    print('es_request_time', f'{dt}', f'ip={g.client_ip}', flush=True)
+    record_es_cost(dt)
 
     main_resp_body = main_resp.json()
     fragments = []
